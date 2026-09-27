@@ -9,7 +9,7 @@
   </head>
   <body>
     <main id="shell" class="shell">
-      <header class="topbar">
+      <header id="topbar" class="topbar">
         <div class="brand"><span class="brand-mark" aria-hidden="true">⑂</span> BrowseFork</div>
         <button id="settings-toggle" class="quiet-button" type="button">Preferences</button>
       </header>
@@ -18,8 +18,9 @@
 
       <section id="chooser-view" hidden>
         <h1>Open with</h1>
-        <p id="pending-host" class="pending-host"></p>
         <div id="browser-list" class="browser-list" aria-label="Available browsers"></div>
+        <p id="selected-browser" class="selected-browser" aria-live="polite" hidden></p>
+        <p id="pending-host" class="pending-host"></p>
 
         <div id="save-card" class="save-card">
           <label class="checkbox-row" for="save-choice">
@@ -27,6 +28,10 @@
             <span>Save choice</span>
           </label>
           <div id="save-rule-fields" class="rule-fields" hidden>
+            <label for="save-source-app">From app</label>
+            <select id="save-source-app">
+              <option value="">Any app</option>
+            </select>
             <label for="save-mode">Match using</label>
             <select id="save-mode">
               <option value="host">This host and its subdomains</option>
@@ -35,13 +40,14 @@
             </select>
             <label for="save-pattern">Pattern</label>
             <input id="save-pattern" type="text" spellcheck="false" autocomplete="off" />
-            <p class="field-hint">Rules are checked from top to bottom. The first match wins.</p>
+            <p class="field-hint">Leave the pattern empty for any web or local HTML URL from this app. At least one condition is required.</p>
           </div>
         </div>
         <div class="chooser-footer">
-          <span class="keyboard-hint">Tab to move · Enter to open · Esc to skip</span>
+          <span id="keyboard-hint" class="keyboard-hint">Tab to move · Enter to open · Esc to skip</span>
           <span id="queue-status" class="queue-status" hidden></span>
           <button id="skip-link" class="quiet-button" type="button">Skip</button>
+          <button id="switcher-settings" class="quiet-button switcher-settings" type="button" aria-label="Preferences" title="Preferences" hidden>⚙</button>
         </div>
       </section>
 
@@ -49,11 +55,21 @@
         <p class="eyebrow">PREFERENCES</p>
         <h1>Link rules</h1>
         <p class="intro">Matching links open automatically. Other links show the browser picker.</p>
+        <div class="picker-preference">
+          <label for="picker-style">Browser picker</label>
+          <select id="picker-style">
+            <option value="switcher">Icon switcher (default)</option>
+            <option value="list">Browser list</option>
+          </select>
+        </div>
         <div id="rules-list" class="rules-list"></div>
 
         <form id="rule-form" class="rule-form">
           <h2 id="rule-form-title">Add a rule</h2>
           <div class="form-grid">
+            <label for="rule-source-app">From app</label>
+            <input id="rule-source-app" type="text" list="source-app-options" spellcheck="false" autocomplete="off" placeholder="Any app, or a bundle ID" />
+            <datalist id="source-app-options"></datalist>
             <label for="rule-mode">Match using</label>
             <select id="rule-mode">
               <option value="host">Host and subdomains</option>
@@ -61,7 +77,7 @@
               <option value="regex">Regular expression</option>
             </select>
             <label for="rule-pattern">Pattern</label>
-            <input id="rule-pattern" type="text" spellcheck="false" autocomplete="off" placeholder="example.com" required />
+            <input id="rule-pattern" type="text" spellcheck="false" autocomplete="off" placeholder="Any web or HTML URL, or example.com" />
             <label for="rule-browser">Open in</label>
             <select id="rule-browser" required></select>
           </div>

@@ -13,10 +13,11 @@
         "label": "main",
         "title": "BrowseFork",
         "visible": false,
+        "decorations": false,
         "width": 620,
         "height": 500,
-        "minWidth": 400,
-        "minHeight": 340,
+        "minWidth": 300,
+        "minHeight": 200,
         "resizable": true
       }
     ],

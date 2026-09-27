@@ -12,8 +12,10 @@ function chooser() {
   const elements = new Map();
   let snapshot = {
     pending_url: "https://ya.ru/private/page",
+    pending_source_app_id: "com.tinyspeck.slackmacgap",
     pending_count: 1,
     suggested_pattern: "ya.ru",
+    picker_style: "switcher",
     browsers: [
       { id: "brave", name: "Brave", icon_data_url: null },
       { id: "safari", name: "Safari", icon_data_url: null },
@@ -90,6 +92,7 @@ function chooser() {
 
     focus() {
       document.activeElement = this;
+      this.dispatch("focus");
     }
 
     blur() {
@@ -119,6 +122,7 @@ function chooser() {
   for (const id of ["chooser-view", "settings-view", "save-rule-fields"]) $(id).hidden = true;
   $("save-choice").tagName = "INPUT";
   $("save-mode").tagName = "SELECT";
+  $("save-source-app").tagName = "SELECT";
   $("save-mode").value = "host";
   for (const value of ["host", "contains", "regex"]) {
     const option = new FakeElement("option");
@@ -130,6 +134,10 @@ function chooser() {
   const invoke = async (command, args) => {
     calls.push({ command, args });
     if (command === "get_snapshot") return snapshot;
+    if (command === "set_picker_style") {
+      snapshot = { ...snapshot, picker_style: args.style };
+      return snapshot;
+    }
     if (command === "choose_browser" || command === "skip_link") {
       snapshot = { ...snapshot, pending_url: null, pending_count: 0, suggested_pattern: null };
       return command === "choose_browser" ? { snapshot, warning: null } : snapshot;
@@ -139,6 +147,7 @@ function chooser() {
   };
   const context = {
     document,
+    navigator: { platform: "MacIntel" },
     window: { __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
     HTMLElement: FakeElement,
     URL,
@@ -149,9 +158,9 @@ function chooser() {
     $,
     calls,
     document,
-    key(key, shiftKey = false) {
+    key(key, shiftKey = false, modifiers = {}) {
       let prevented = false;
-      document.handlers.get("keydown")({ key, shiftKey, preventDefault() { prevented = true; } });
+      document.handlers.get("keydown")({ key, shiftKey, ...modifiers, preventDefault() { prevented = true; } });
       return prevented;
     },
     setSnapshot(value) {
@@ -169,6 +178,10 @@ test("Tab focuses one browser at a time and reaches the expanded save controls",
   const buttons = app.$("browser-list").querySelectorAll("button");
   assert.equal(app.$("pending-host").textContent, "ya.ru");
   assert.equal(buttons.length, 2);
+  assert.equal(app.document.body.classList.contains("picker-switcher"), true);
+  assert.equal(app.$("topbar").hidden, true);
+  assert.equal(app.$("switcher-settings").hidden, false);
+  assert.equal(app.$("selected-browser").textContent, "Brave");
   assert.equal(app.document.body.classList.contains("keyboard-navigation"), false);
   assert.equal(app.key("Tab"), true);
   assert.equal(app.document.activeElement, buttons[0]);
@@ -181,11 +194,50 @@ test("Tab focuses one browser at a time and reaches the expanded save controls",
   assert.equal(app.$("save-choice").checked, true);
   assert.equal(app.$("save-rule-fields").hidden, false);
   app.key("Tab");
+  assert.equal(app.document.activeElement, app.$("save-source-app"));
+  app.key("Tab");
   assert.equal(app.document.activeElement, app.$("save-mode"));
   app.key("Tab");
   assert.equal(app.document.activeElement, app.$("save-pattern"));
   app.key("Tab", true);
   assert.equal(app.document.activeElement, app.$("save-mode"));
+});
+
+test("switcher arrows change the highlighted browser and Enter opens it", async () => {
+  const app = chooser();
+  await settle();
+  assert.equal(app.key("ArrowRight"), true);
+  assert.equal(app.$("selected-browser").textContent, "Safari");
+  assert.equal(app.key("Enter"), true);
+  await settle();
+  const chosen = app.calls.find((call) => call.command === "choose_browser");
+  assert.equal(chosen.args.browserId, "safari");
+  assert.equal(chosen.args.saveRule, null);
+});
+
+test("switcher command-number shortcut opens the matching browser", async () => {
+  const app = chooser();
+  await settle();
+  assert.equal(app.key("2", false, { metaKey: true }), true);
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "choose_browser").args.browserId, "safari");
+});
+
+test("picker preference switches to the original list and persists the selection", async () => {
+  const app = chooser();
+  await settle();
+  app.$("switcher-settings").click();
+  assert.equal(app.$("topbar").hidden, false);
+  assert.equal(app.$("switcher-settings").hidden, true);
+  app.$("picker-style").value = "list";
+  app.$("picker-style").dispatch("change");
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "set_picker_style").args.style, "list");
+  assert.equal(app.$("picker-style").value, "list");
+  app.$("settings-toggle").click();
+  assert.equal(app.document.body.classList.contains("picker-list"), true);
+  assert.equal(app.$("selected-browser").hidden, true);
+  assert.equal(app.$("pending-host").textContent, "ya.ru");
 });
 
 test("choosing a browser sends the current URL and requested rule", async () => {
@@ -201,7 +253,7 @@ test("choosing a browser sends the current URL and requested rule", async () => 
     {
       browserId: "safari",
       expectedUrl: "https://ya.ru/private/page",
-      saveRule: { mode: "regex", pattern: "^https://ya\\.ru/private/" },
+      saveRule: { source_app_id: null, mode: "regex", pattern: "^https://ya\\.ru/private/" },
     }
   );
 });
@@ -216,6 +268,39 @@ test("Escape skips the pending link without opening a browser", async () => {
     { expectedUrl: "https://ya.ru/private/page" }
   );
   assert.equal(app.calls.some((call) => call.command === "choose_browser"), false);
+});
+
+test("app-only saved choice includes the detected source app", async () => {
+  const app = chooser();
+  await settle();
+  app.$("save-choice").click();
+  app.$("save-source-app").value = "com.tinyspeck.slackmacgap";
+  app.$("save-pattern").value = "";
+  app.$("browser-list").querySelectorAll("button")[0].click();
+  await settle();
+  const choice = app.calls.find((call) => call.command === "choose_browser");
+  assert.deepEqual(JSON.parse(JSON.stringify(choice.args.saveRule)), {
+    source_app_id: "com.tinyspeck.slackmacgap", mode: "host", pattern: ""
+  });
+});
+
+test("both Any conditions are rejected before saving", async () => {
+  const app = chooser();
+  await settle();
+  app.$("save-choice").click();
+  app.$("save-pattern").value = "";
+  app.$("browser-list").querySelectorAll("button")[0].click();
+  await settle();
+  assert.equal(app.calls.some((call) => call.command === "choose_browser"), false);
+  assert.match(app.$("message").textContent, /source app or enter a URL pattern/);
+
+  app.$("switcher-settings").click();
+  app.$("rule-source-app").value = "";
+  app.$("rule-pattern").value = "";
+  app.$("rule-browser").value = "brave";
+  app.$("rule-form").dispatch("submit", { preventDefault() {} });
+  await settle();
+  assert.equal(app.calls.some((call) => call.command === "replace_rules"), false);
 });
 
 test("a new local HTML link resets the previous choice and proposes a folder rule", async () => {

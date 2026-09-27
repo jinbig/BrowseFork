@@ -1,4 +1,4 @@
-use crate::{matching_rule, parse_openable_url, Settings};
+use crate::{matching_rule_for_source, parse_openable_url, Settings};
 use std::collections::VecDeque;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -14,13 +14,21 @@ pub enum DispatchOutcome {
 }
 
 pub fn route_link(raw: &str, settings: &Settings) -> LinkRoute {
+    route_link_for_source(raw, None, settings)
+}
+
+pub fn route_link_for_source(
+    raw: &str,
+    source_app_id: Option<&str>,
+    settings: &Settings,
+) -> LinkRoute {
     let Ok(url) = parse_openable_url(raw) else {
         return LinkRoute::Choose {
             url: raw.to_owned(),
         };
     };
     let url_string = url.to_string();
-    if let Some(rule) = matching_rule(settings, &url) {
+    if let Some(rule) = matching_rule_for_source(settings, &url, source_app_id) {
         LinkRoute::OpenWithRule {
             url: url_string,
             browser_id: rule.browser_id.clone(),
@@ -35,7 +43,16 @@ pub fn dispatch_link(
     settings: &Settings,
     open_with_rule: impl FnOnce(&str, &str) -> Result<(), String>,
 ) -> DispatchOutcome {
-    match route_link(raw, settings) {
+    dispatch_link_for_source(raw, None, settings, open_with_rule)
+}
+
+pub fn dispatch_link_for_source(
+    raw: &str,
+    source_app_id: Option<&str>,
+    settings: &Settings,
+    open_with_rule: impl FnOnce(&str, &str) -> Result<(), String>,
+) -> DispatchOutcome {
+    match route_link_for_source(raw, source_app_id, settings) {
         LinkRoute::OpenWithRule { url, browser_id } => {
             if open_with_rule(&browser_id, &url).is_ok() {
                 DispatchOutcome::Opened
@@ -47,21 +64,45 @@ pub fn dispatch_link(
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingLink {
+    url: String,
+    source_app_id: Option<String>,
+}
+
 #[derive(Default)]
-pub struct PendingLinks(VecDeque<String>);
+pub struct PendingLinks(VecDeque<PendingLink>);
 
 impl PendingLinks {
     pub fn push(&mut self, url: String) {
-        self.0.retain(|waiting| waiting != &url);
-        self.0.push_front(url);
+        self.push_with_source(url, None);
+    }
+
+    pub fn push_with_source(&mut self, url: String, source_app_id: Option<String>) {
+        let known_source = self
+            .0
+            .iter()
+            .find(|waiting| waiting.url == url)
+            .and_then(|waiting| waiting.source_app_id.clone());
+        self.0.retain(|waiting| waiting.url != url);
+        self.0.push_front(PendingLink {
+            url,
+            source_app_id: source_app_id.or(known_source),
+        });
     }
 
     pub fn front(&self) -> Option<&str> {
-        self.0.front().map(String::as_str)
+        self.0.front().map(|link| link.url.as_str())
+    }
+
+    pub fn front_source_app_id(&self) -> Option<&str> {
+        self.0
+            .front()
+            .and_then(|link| link.source_app_id.as_deref())
     }
 
     pub fn pop_front(&mut self) -> Option<String> {
-        self.0.pop_front()
+        self.0.pop_front().map(|link| link.url)
     }
 
     pub fn len(&self) -> usize {
@@ -133,6 +174,15 @@ mod tests {
         assert_eq!(pending.pop_front().as_deref(), Some("first"));
         assert_eq!(pending.pop_front().as_deref(), Some("second"));
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn pending_link_retains_sender_across_duplicate_without_sender() {
+        let mut pending = PendingLinks::default();
+        pending.push_with_source("https://example.com/".into(), Some("com.apple.mail".into()));
+        pending.push("https://example.com/".into());
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending.front_source_app_id(), Some("com.apple.mail"));
     }
 
     #[test]

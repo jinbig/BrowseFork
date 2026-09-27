@@ -1,12 +1,13 @@
 #import <AppKit/AppKit.h>
+#import <Carbon/Carbon.h>
 #import <objc/runtime.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-typedef void (*BrowseForkURLCallback)(const char *);
+typedef void (*BrowseForkURLCallback)(const char *, const char *);
 static BrowseForkURLCallback browseforkURLCallback;
-static NSMutableArray<NSString *> *browseforkPendingURLs;
+static NSMutableArray<NSDictionary *> *browseforkPendingURLs;
 static bool browseforkWasDefaultLaunch;
 
 @interface BrowseForkLaunchObserver : NSObject
@@ -39,11 +40,19 @@ static void browsefork_open_urls(id self, SEL selector, NSApplication *app,
     (void)self;
     (void)selector;
     (void)app;
+    // The sender is only trustworthy while AppKit is handling this Apple event.
+    // Do not infer it from the frontmost application when the attribute is absent.
+    NSAppleEventDescriptor *event = [[NSAppleEventManager sharedAppleEventManager] currentAppleEvent];
+    NSAppleEventDescriptor *sender = [event attributeDescriptorForKeyword:keySenderPIDAttr];
+    pid_t senderPID = sender ? (pid_t)[sender int32Value] : 0;
+    NSRunningApplication *source = senderPID > 0
+        ? [NSRunningApplication runningApplicationWithProcessIdentifier:senderPID] : nil;
+    NSString *sourceID = source.bundleIdentifier;
     for (NSURL *url in urls) {
         NSString *value = [url absoluteString];
         if (!value) continue;
-        if (browseforkURLCallback) browseforkURLCallback([value UTF8String]);
-        else [browseforkPendingURLs addObject:value];
+        if (browseforkURLCallback) browseforkURLCallback([value UTF8String], [sourceID UTF8String]);
+        else [browseforkPendingURLs addObject:@{ @"url": value, @"source": sourceID ?: [NSNull null] }];
     }
 }
 
@@ -61,7 +70,10 @@ bool browsefork_capture_delegate_urls(void) {
 
 void browsefork_install_url_handler(BrowseForkURLCallback callback) {
     browseforkURLCallback = callback;
-    for (NSString *url in browseforkPendingURLs) callback([url UTF8String]);
+    for (NSDictionary *link in browseforkPendingURLs) {
+        NSString *source = link[@"source"];
+        callback([link[@"url"] UTF8String], source == (id)[NSNull null] ? NULL : [source UTF8String]);
+    }
     [browseforkPendingURLs removeAllObjects];
 }
 
@@ -98,10 +110,11 @@ static bool browsefork_is_browser(NSBundle *bundle) {
 static NSString *browsefork_icon_data_url(NSWorkspace *workspace, NSString *path) {
     NSImage *icon = [workspace iconForFile:path];
     if (!icon) return nil;
+    const NSInteger iconPixels = 192;
     NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc]
         initWithBitmapDataPlanes:NULL
-                     pixelsWide:48
-                     pixelsHigh:48
+                     pixelsWide:iconPixels
+                     pixelsHigh:iconPixels
                   bitsPerSample:8
                 samplesPerPixel:4
                        hasAlpha:YES
@@ -114,7 +127,8 @@ static NSString *browsefork_icon_data_url(NSWorkspace *workspace, NSString *path
     if (!context) return nil;
     [NSGraphicsContext saveGraphicsState];
     [NSGraphicsContext setCurrentContext:context];
-    [icon drawInRect:NSMakeRect(0, 0, 48, 48)
+    context.imageInterpolation = NSImageInterpolationHigh;
+    [icon drawInRect:NSMakeRect(0, 0, iconPixels, iconPixels)
            fromRect:NSZeroRect
           operation:NSCompositingOperationSourceOver
            fraction:1.0];
@@ -158,6 +172,27 @@ char *browsefork_list_browsers(void) {
             return [left[@"name"] localizedCaseInsensitiveCompare:right[@"name"]];
         }];
         NSData *data = [NSJSONSerialization dataWithJSONObject:browsers options:0 error:nil];
+        if (!data) return NULL;
+        NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        return json ? strdup([json UTF8String]) : NULL;
+    }
+}
+
+char *browsefork_list_source_apps(void) {
+    @autoreleasepool {
+        NSMutableArray<NSDictionary *> *apps = [NSMutableArray array];
+        NSMutableSet<NSString *> *seen = [NSMutableSet set];
+        for (NSRunningApplication *app in [[NSWorkspace sharedWorkspace] runningApplications]) {
+            NSString *appID = app.bundleIdentifier;
+            if (!appID || [appID isEqualToString:@"com.browsefork.desktop"] ||
+                [seen containsObject:appID]) continue;
+            [seen addObject:appID];
+            [apps addObject:@{ @"id": appID, @"name": app.localizedName ?: appID }];
+        }
+        [apps sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+            return [left[@"name"] localizedCaseInsensitiveCompare:right[@"name"]];
+        }];
+        NSData *data = [NSJSONSerialization dataWithJSONObject:apps options:0 error:nil];
         if (!data) return NULL;
         NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
         return json ? strdup([json UTF8String]) : NULL;

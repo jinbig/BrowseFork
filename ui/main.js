@@ -7,6 +7,10 @@ let showSettings = false;
 let editingId = null;
 let busy = false;
 let displayedUrl = null;
+let selectedBrowserId = null;
+
+const pickerStyle = () => snapshot?.picker_style || "switcher";
+const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
 
 function message(text) {
   $("message").textContent = text || "";
@@ -33,17 +37,35 @@ function browserName(id) {
   return snapshot.browsers.find((browser) => browser.id === id)?.name || "Unavailable browser";
 }
 
+function sourceAppName(id) {
+  return snapshot.source_apps?.find((app) => app.id === id)?.name || id;
+}
+
+function renderSourceApps() {
+  const list = $("source-app-options");
+  list.replaceChildren();
+  for (const app of snapshot.source_apps || []) {
+    const option = node("option");
+    option.value = app.id;
+    option.label = app.name;
+    list.append(option);
+  }
+}
+
 function renderBrowsers() {
   const list = $("browser-list");
   list.replaceChildren();
+  $("selected-browser").hidden = pickerStyle() !== "switcher";
   if (snapshot.browsers.length === 0) {
+    $("selected-browser").textContent = "";
     list.append(node("p", "empty-state", "No browsers were found. Install a browser and try again."));
     return;
   }
-  for (const browser of snapshot.browsers) {
+  for (const [index, browser] of snapshot.browsers.entries()) {
     const button = node("button", "browser-button");
     button.type = "button";
     button.title = browser.name;
+    button.setAttribute("aria-label", browser.name);
     if (browser.icon_data_url) {
       const icon = node("img", "browser-icon");
       icon.src = browser.icon_data_url;
@@ -53,9 +75,22 @@ function renderBrowsers() {
       button.append(node("span", "browser-icon-fallback", browser.name.slice(0, 1)));
     }
     button.append(node("span", "browser-name", browser.name));
+    if (index < 9) button.append(node("span", "browser-shortcut", `${shortcutPrefix}${index + 1}`));
+    button.addEventListener("focus", () => selectBrowser(browser.id));
+    button.addEventListener("mouseenter", () => selectBrowser(browser.id));
     button.addEventListener("click", () => choose(browser.id));
     list.append(button);
   }
+  selectBrowser(snapshot.browsers.some((browser) => browser.id === selectedBrowserId)
+    ? selectedBrowserId : snapshot.browsers[0].id);
+}
+
+function selectBrowser(id) {
+  selectedBrowserId = id;
+  $("selected-browser").textContent = browserName(id);
+  $("browser-list").querySelectorAll("button").forEach((button, index) => {
+    button.classList.toggle("is-selected", snapshot.browsers[index].id === id);
+  });
 }
 
 function renderRuleBrowserOptions() {
@@ -99,8 +134,8 @@ function renderRules() {
     const row = node("div", "rule-row");
     const summary = node("div", "rule-summary");
     summary.append(
-      node("div", "rule-pattern", rule.pattern),
-      node("div", "rule-meta", `${rule.mode} → ${browserName(rule.browser_id)}${rule.enabled ? "" : " · off"}`)
+      node("div", "rule-pattern", `${rule.source_app_id ? sourceAppName(rule.source_app_id) : "Any app"} · ${rule.pattern || "Any web/HTML URL"}`),
+      node("div", "rule-meta", `${rule.pattern ? rule.mode : "all URLs"} → ${browserName(rule.browser_id)}${rule.enabled ? "" : " · off"}`)
     );
     const actions = node("div", "rule-actions");
     const action = (label, title, handler, disabled = false) => {
@@ -132,6 +167,7 @@ function editRule(rule) {
   editingId = rule.id;
   $("rule-form-title").textContent = "Edit rule";
   $("rule-mode").value = rule.mode;
+  $("rule-source-app").value = rule.source_app_id || "";
   $("rule-pattern").value = rule.pattern;
   renderRuleBrowserOptions();
   $("rule-browser").value = rule.browser_id;
@@ -151,21 +187,41 @@ function render() {
   if (!snapshot) return;
   const hasPending = Boolean(snapshot.pending_url);
   const settingsVisible = showSettings || !hasPending;
+  const switcherVisible = !settingsVisible && pickerStyle() === "switcher";
   const newLink = hasPending && snapshot.pending_url !== displayedUrl;
   document.body.classList.toggle("chooser-mode", !settingsVisible);
+  document.body.classList.toggle("picker-switcher", switcherVisible);
+  document.body.classList.toggle("picker-list", !settingsVisible && pickerStyle() === "list");
+  $("topbar").hidden = switcherVisible;
+  $("switcher-settings").hidden = !switcherVisible;
   $("chooser-view").hidden = settingsVisible;
   $("settings-view").hidden = !settingsVisible;
+  $("picker-style").value = pickerStyle();
   $("settings-toggle").textContent = settingsVisible && hasPending ? "Back to link" : "Preferences";
   $("settings-toggle").hidden = !hasPending;
+  $("keyboard-hint").textContent = pickerStyle() === "switcher"
+    ? "Tab / ← → · Enter · Esc" : "Tab to move · Enter to open · Esc to skip";
   if (snapshot.error) message(snapshot.error);
 
   if (hasPending) {
     if (newLink) {
       displayedUrl = snapshot.pending_url;
+      selectedBrowserId = null;
       document.body.classList.remove("keyboard-navigation");
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       $("save-choice").checked = false;
       $("save-rule-fields").hidden = true;
+      const sourceSelect = $("save-source-app");
+      sourceSelect.replaceChildren();
+      const anyApp = node("option", "", "Any app");
+      anyApp.value = "";
+      sourceSelect.append(anyApp);
+      if (snapshot.pending_source_app_id) {
+        const currentApp = node("option", "", `This app: ${sourceAppName(snapshot.pending_source_app_id)}`);
+        currentApp.value = snapshot.pending_source_app_id;
+        sourceSelect.append(currentApp);
+      }
+      sourceSelect.value = "";
       const localFile = snapshot.pending_url.startsWith("file:");
       $("save-mode").querySelector('option[value="host"]').disabled = localFile;
       $("save-mode").value = localFile ? "contains" : "host";
@@ -185,9 +241,11 @@ function render() {
     renderBrowsers();
   } else {
     displayedUrl = null;
+    selectedBrowserId = null;
     document.body.classList.remove("keyboard-navigation");
   }
   renderRuleBrowserOptions();
+  renderSourceApps();
   renderRules();
   updateLayout();
 }
@@ -197,17 +255,24 @@ function updateLayout() {
     const settings = showSettings || !snapshot?.pending_url;
     invoke("set_picker_layout", {
       settings,
-      contentHeight: settings ? null : Math.ceil($("shell").scrollHeight)
+      contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
+      contentWidth: settings ? null : pickerStyle() === "switcher"
+        ? Math.min(760, Math.max(320, snapshot.browsers.length * 84 + 40)) : 440
     }).catch((error) => message(String(error)));
   });
 }
 
 async function choose(browserId) {
   if (busy) return;
-  busy = true;
   const saveRule = $("save-choice").checked
-    ? { mode: $("save-mode").value, pattern: $("save-pattern").value }
+    ? { source_app_id: $("save-source-app").value || null,
+        mode: $("save-mode").value, pattern: $("save-pattern").value.trim() }
     : null;
+  if (saveRule && !saveRule.source_app_id && !saveRule.pattern) {
+    message("Choose a source app or enter a URL pattern.");
+    return;
+  }
+  busy = true;
   const expectedUrl = snapshot.pending_url;
   try {
     const result = await invoke("choose_browser", { browserId, expectedUrl, saveRule });
@@ -248,10 +313,24 @@ $("save-choice").addEventListener("change", (event) => {
   updateLayout();
 });
 
-$("settings-toggle").addEventListener("click", () => {
+function toggleSettings() {
   showSettings = !showSettings;
   message("");
   render();
+}
+
+$("settings-toggle").addEventListener("click", toggleSettings);
+$("switcher-settings").addEventListener("click", toggleSettings);
+
+$("picker-style").addEventListener("change", async (event) => {
+  try {
+    snapshot = await invoke("set_picker_style", { style: event.target.value });
+    message("");
+    render();
+  } catch (error) {
+    $("picker-style").value = pickerStyle();
+    message(String(error));
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -267,13 +346,38 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   const browserButtons = [...$("browser-list").querySelectorAll("button")];
+  if (pickerStyle() === "switcher" && (event.metaKey || event.ctrlKey) &&
+      /^[1-9]$/.test(event.key)) {
+    const browser = snapshot.browsers[Number(event.key) - 1];
+    if (!browser) return;
+    event.preventDefault();
+    choose(browser.id);
+    return;
+  }
+  if (pickerStyle() === "switcher" && ["ArrowLeft", "ArrowRight"].includes(event.key) &&
+      document.activeElement !== $("save-source-app") && document.activeElement !== $("save-mode") && document.activeElement !== $("save-pattern")) {
+    if (!browserButtons.length) return;
+    event.preventDefault();
+    document.body.classList.add("keyboard-navigation");
+    const current = snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId);
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    browserButtons[(current + direction + browserButtons.length) % browserButtons.length].focus();
+    return;
+  }
+  if (pickerStyle() === "switcher" && event.key === "Enter" && selectedBrowserId &&
+      ![$("save-source-app"), $("save-mode"), $("save-pattern"), $("skip-link"), $("settings-toggle"), $("switcher-settings")]
+        .includes(document.activeElement)) {
+    event.preventDefault();
+    choose(selectedBrowserId);
+    return;
+  }
   if (event.key !== "Tab") return;
   const stops = [
     ...browserButtons,
     ...($("save-card").hidden ? [] : [$("save-choice")]),
-    ...($("save-card").hidden || $("save-rule-fields").hidden ? [] : [$("save-mode"), $("save-pattern")]),
+    ...($("save-card").hidden || $("save-rule-fields").hidden ? [] : [$("save-source-app"), $("save-mode"), $("save-pattern")]),
     $("skip-link"),
-    $("settings-toggle")
+    pickerStyle() === "switcher" ? $("switcher-settings") : $("settings-toggle")
   ];
   if (!stops.length) return;
   event.preventDefault();
@@ -293,11 +397,16 @@ $("rule-form").addEventListener("submit", async (event) => {
     return;
   }
   const values = {
+    source_app_id: $("rule-source-app").value.trim() || null,
     mode: $("rule-mode").value,
-    pattern: $("rule-pattern").value,
+    pattern: $("rule-pattern").value.trim(),
     browser_id: $("rule-browser").value,
     enabled: true
   };
+  if (!values.source_app_id && !values.pattern) {
+    message("Choose a source app or enter a URL pattern.");
+    return;
+  }
   const rules = [...snapshot.rules];
   if (editingId === null) {
     values.id = Math.max(0, ...rules.map((rule) => rule.id)) + 1;

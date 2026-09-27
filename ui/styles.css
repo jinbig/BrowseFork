@@ -6,7 +6,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { min-height: 100vh; margin: 0; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
@@ -33,6 +33,7 @@ h2 { margin: 0 0 14px; font-size: 15px; }
 .browser-icon { flex: 0 0 auto; width: 30px; height: 30px; object-fit: contain; }
 .browser-icon-fallback { display: grid; place-items: center; flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; background: #edf0ff; color: #4559d8; font-size: 17px; }
 .browser-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-shortcut { display: none; }
 .save-card, .rule-form { border: 1px solid #dfe3eb; border-radius: 12px; background: white; padding: 16px; }
 .chooser-mode .save-card { padding: 10px 12px; }
 .keyboard-navigation .save-card:focus-within { border-color: #5c6ee4; }
@@ -62,7 +63,58 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .primary-button { padding: 9px 13px; border: 0; border-radius: 8px; background: #4559d8; color: white; font-size: 13px; font-weight: 650; }
 .primary-button:hover { background: #3446bd; }
 .setup-note { color: #788195; font-size: 12px; line-height: 1.5; }
+.picker-preference { display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: center; gap: 12px; margin-bottom: 22px; padding: 12px 16px; border: 1px solid #dfe3eb; border-radius: 12px; background: white; }
+.picker-preference label { color: #5a6475; font-size: 12px; font-weight: 650; }
+#chooser-view { display: flex; flex-direction: column; }
+#chooser-view h1 { order: 0; }
+#pending-host { order: 1; }
+#browser-list { order: 2; }
+#selected-browser { order: 3; }
+#save-card { order: 4; }
+.chooser-footer { order: 5; }
+.selected-browser { margin: 0 0 12px; font-size: 16px; font-weight: 650; text-align: center; }
+
+.chooser-mode.picker-switcher { background: #1c2229; color: #f7f8fa; }
+.picker-switcher .shell { max-width: none; padding: 8px 12px 10px; }
+.picker-switcher .topbar { margin-bottom: 3px; }
+.picker-switcher .brand { color: #e4e8ee; font-size: 13px; }
+.picker-switcher .brand-mark { width: 23px; height: 23px; font-size: 18px; }
+.picker-switcher .quiet-button { color: #cbd7ff; }
+.picker-switcher .quiet-button:hover { background: #343d49; }
+.picker-switcher #chooser-view h1 { display: none; }
+.picker-switcher #browser-list { order: 1; }
+.picker-switcher #selected-browser { order: 2; }
+.picker-switcher #pending-host { order: 3; }
+.picker-switcher #browser-list { display: flex; justify-content: flex-start; gap: 5px; width: max-content; max-width: 100%; min-height: 82px; max-height: none; margin: 0 auto; padding: 2px; overflow-x: auto; overflow-y: hidden; }
+.picker-switcher .browser-button { position: relative; flex: 0 0 76px; display: grid; place-items: center; min-height: 78px; padding: 5px; border: 2px solid transparent; border-radius: 14px; background: transparent; color: white; }
+.picker-switcher .browser-button:hover { background: #343c46; }
+.picker-switcher .browser-button.is-selected,
+.picker-switcher.keyboard-navigation .browser-button:focus { border-color: #818c99; background: #4a545f; outline: none; }
+.picker-switcher .browser-icon,
+.picker-switcher .browser-icon-fallback { width: 60px; height: 60px; }
+.picker-switcher .browser-icon-fallback { border-radius: 13px; background: #4559d8; color: white; font-size: 28px; }
+.picker-switcher .browser-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.picker-switcher .browser-shortcut { position: absolute; right: 4px; bottom: 6px; display: block; padding: 1px 3px; border-radius: 4px; background: #172029d9; color: white; font-size: 10px; font-weight: 700; }
+.picker-switcher .selected-browser { margin: 2px 0 2px; color: #f7f8fa; font-size: 14px; }
+.picker-switcher .pending-host { max-width: 100%; margin: 0 0 8px; color: #e2e5e9; font-size: 12px; font-weight: 550; text-align: center; }
+.picker-switcher .save-card { padding: 7px 9px; border-color: #424b55; background: #29313b; }
+.picker-switcher .checkbox-row { color: #e4e8ee; font-size: 12px; }
+.picker-switcher .rule-fields label { color: #c5ccd5; }
+.picker-switcher .rule-fields input,
+.picker-switcher .rule-fields select { border-color: #56616e; background: #20272f; color: #f7f8fa; }
+.picker-switcher .rule-fields { grid-template-columns: 1fr; gap: 5px; padding-top: 10px; }
+.picker-switcher .field-hint { grid-column: 1; }
+.picker-switcher .field-hint,
+.picker-switcher .keyboard-hint,
+.picker-switcher .queue-status { color: #a9b2be; }
+.picker-switcher .chooser-footer { margin-top: 2px; }
+.picker-switcher .chooser-footer .quiet-button { padding: 4px 6px; font-size: 11px; }
+.picker-switcher .chooser-footer .switcher-settings { margin-left: 0; font-size: 16px; line-height: 1; }
+.picker-switcher .keyboard-hint { font-size: 10px; }
+.picker-switcher .message { border-color: #8d7543; background: #463b27; color: #fff1c8; }
+.picker-switcher .empty-state { color: #b8c1cc; }
 
 @media (max-width: 540px) {
   body:not(.chooser-mode) .shell { padding: 20px; }
+  .picker-preference { grid-template-columns: 1fr; }
 }

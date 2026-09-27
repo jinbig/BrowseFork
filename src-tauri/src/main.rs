@@ -3,10 +3,10 @@
 mod platform;
 
 use browsefork_core::{
-    dispatch_link, load_settings, parse_openable_url, save_settings, suggested_pattern,
-    DispatchOutcome, MatchMode, PendingLinks, Rule, Settings,
+    dispatch_link_for_source, load_settings, parse_openable_url, save_settings, suggested_pattern,
+    DispatchOutcome, MatchMode, PendingLinks, PickerStyle, Rule, Settings,
 };
-use platform::Browser;
+use platform::{Browser, SourceApp};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -28,11 +28,16 @@ struct AppState {
 static MACOS_APP: OnceLock<AppHandle> = OnceLock::new();
 
 #[cfg(target_os = "macos")]
-extern "C" fn macos_receive_url(raw: *const c_char) {
+extern "C" fn macos_receive_url(raw: *const c_char, source_app_id: *const c_char) {
     if let (Some(app), false) = (MACOS_APP.get(), raw.is_null()) {
         let url = unsafe { CStr::from_ptr(raw) };
         if let Ok(url) = url.to_str() {
-            receive_url(app, url);
+            let source_app_id = if source_app_id.is_null() {
+                None
+            } else {
+                unsafe { CStr::from_ptr(source_app_id) }.to_str().ok()
+            };
+            receive_url(app, url, source_app_id);
         }
     }
 }
@@ -40,15 +45,20 @@ extern "C" fn macos_receive_url(raw: *const c_char) {
 #[derive(Serialize)]
 struct Snapshot {
     pending_url: Option<String>,
+    pending_source_app_id: Option<String>,
     pending_count: usize,
     suggested_pattern: Option<String>,
     browsers: Vec<Browser>,
+    source_apps: Vec<SourceApp>,
     rules: Vec<Rule>,
+    picker_style: PickerStyle,
     error: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct SaveRule {
+    #[serde(default)]
+    source_app_id: Option<String>,
     mode: MatchMode,
     pattern: String,
 }
@@ -62,6 +72,7 @@ struct ChooseResult {
 fn snapshot(state: &AppState) -> Snapshot {
     let pending = state.pending.lock().unwrap();
     let pending_url = pending.front().map(str::to_owned);
+    let pending_source_app_id = pending.front_source_app_id().map(str::to_owned);
     let pending_count = pending.len();
     drop(pending);
     let suggested_pattern = pending_url
@@ -72,12 +83,20 @@ fn snapshot(state: &AppState) -> Snapshot {
         Ok(browsers) => (browsers, None),
         Err(error) => (Vec::new(), Some(error)),
     };
+    let source_apps = platform::list_source_apps();
+    let settings = state.settings.lock().unwrap();
+    let rules = settings.rules.clone();
+    let picker_style = settings.picker_style;
+    drop(settings);
     Snapshot {
         pending_url,
+        pending_source_app_id,
         pending_count,
         suggested_pattern,
         browsers,
-        rules: state.settings.lock().unwrap().rules.clone(),
+        source_apps,
+        rules,
+        picker_style,
         error: discovery_error.or_else(|| state.startup_error.lock().unwrap().clone()),
     }
 }
@@ -86,29 +105,65 @@ fn notify(app: &AppHandle) {
     let _ = app.emit("browsefork-state-changed", ());
 }
 
-fn set_window_layout(app: &AppHandle, settings: bool, content_height: Option<f64>) {
+fn set_window_layout(
+    app: &AppHandle,
+    settings: bool,
+    content_height: Option<f64>,
+    content_width: Option<f64>,
+) {
     if let Some(window) = app.get_webview_window("main") {
+        let picker_style = app
+            .state::<AppState>()
+            .settings
+            .lock()
+            .unwrap()
+            .picker_style;
+        let switcher = !settings && picker_style == PickerStyle::Switcher;
+        if let Err(error) = window.set_decorations(!switcher) {
+            eprintln!("BrowseFork: could not update window decorations: {error}");
+        }
         let (width, height) = if settings {
             (620.0, 500.0)
         } else {
-            let frame_height = window
-                .scale_factor()
-                .ok()
-                .and_then(|scale| {
-                    let outer = window.outer_size().ok()?.to_logical::<f64>(scale);
-                    let inner = window.inner_size().ok()?.to_logical::<f64>(scale);
-                    Some(outer.height - inner.height)
-                })
-                .unwrap_or(30.0);
-            let desired = content_height.unwrap_or(390.0) + frame_height + 32.0;
-            (440.0, desired.clamp(340.0, 720.0))
+            let frame_height = if switcher {
+                0.0
+            } else {
+                window
+                    .scale_factor()
+                    .ok()
+                    .and_then(|scale| {
+                        let outer = window.outer_size().ok()?.to_logical::<f64>(scale);
+                        let inner = window.inner_size().ok()?.to_logical::<f64>(scale);
+                        Some(outer.height - inner.height)
+                    })
+                    .unwrap_or(30.0)
+            };
+            let desired = content_height.unwrap_or(if switcher { 220.0 } else { 390.0 })
+                + frame_height
+                + if switcher { 4.0 } else { 32.0 };
+            (
+                content_width
+                    .unwrap_or(if switcher { 340.0 } else { 440.0 })
+                    .clamp(300.0, 760.0),
+                desired.clamp(200.0, 720.0),
+            )
         };
         let _ = window.set_size(LogicalSize::new(width, height));
     }
 }
 
 fn show_window(app: &AppHandle, settings: bool) {
-    set_window_layout(app, settings, None);
+    let width = match app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .picker_style
+    {
+        PickerStyle::Switcher => 340.0,
+        PickerStyle::List => 440.0,
+    };
+    set_window_layout(app, settings, None, Some(width));
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -121,16 +176,16 @@ fn show_preferences(app: &AppHandle) {
     let _ = app.emit("browsefork-open-preferences", ());
 }
 
-fn queue_link(app: &AppHandle, raw: String) {
+fn queue_link(app: &AppHandle, raw: String, source_app_id: Option<&str>) {
     let state = app.state::<AppState>();
     let mut pending = state.pending.lock().unwrap();
-    pending.push(raw);
+    pending.push_with_source(raw, source_app_id.map(str::to_owned));
     drop(pending);
     show_window(app, false);
     notify(app);
 }
 
-fn receive_url(app: &AppHandle, raw: &str) {
+fn receive_url(app: &AppHandle, raw: &str, source_app_id: Option<&str>) {
     #[cfg(target_os = "macos")]
     if matches!(
         raw,
@@ -141,7 +196,7 @@ fn receive_url(app: &AppHandle, raw: &str) {
     }
     let state = app.state::<AppState>();
     let settings = state.settings.lock().unwrap().clone();
-    let outcome = dispatch_link(raw, &settings, |browser_id, url| {
+    let outcome = dispatch_link_for_source(raw, source_app_id, &settings, |browser_id, url| {
         let browsers = platform::list_browsers()?;
         let browser = browsers
             .iter()
@@ -150,7 +205,7 @@ fn receive_url(app: &AppHandle, raw: &str) {
         platform::open_url(browser, url)
     });
     if let DispatchOutcome::NeedsChoice { url } = outcome {
-        queue_link(app, url);
+        queue_link(app, url, source_app_id);
     }
 }
 
@@ -177,13 +232,22 @@ fn choose_browser(
         .front()
         .map(str::to_owned)
         .ok_or("There is no link waiting to open")?;
+    let source_app_id = pending.front_source_app_id().map(str::to_owned);
     if url != expected_url {
         return Err("A newer link arrived. Choose a browser for the link now shown.".into());
     }
 
     let updated_settings = if let Some(save_rule) = save_rule {
         let mut settings = state.settings.lock().unwrap().clone();
-        settings.add_rule(save_rule.mode, save_rule.pattern, browser_id)?;
+        if save_rule.source_app_id.is_some() && save_rule.source_app_id != source_app_id {
+            return Err("The source app changed. Review the link now shown.".into());
+        }
+        settings.add_rule_for_source(
+            save_rule.source_app_id,
+            save_rule.mode,
+            save_rule.pattern,
+            browser_id,
+        )?;
         Some(settings)
     } else {
         None
@@ -243,8 +307,22 @@ fn skip_link(
 }
 
 #[tauri::command]
-fn set_picker_layout(app: AppHandle, settings: bool, content_height: Option<f64>) {
-    set_window_layout(&app, settings, content_height);
+fn set_picker_layout(
+    app: AppHandle,
+    settings: bool,
+    content_height: Option<f64>,
+    content_width: Option<f64>,
+) {
+    set_window_layout(&app, settings, content_height, content_width);
+}
+
+#[tauri::command]
+fn set_picker_style(state: State<'_, AppState>, style: PickerStyle) -> Result<Snapshot, String> {
+    let mut settings = state.settings.lock().unwrap().clone();
+    settings.picker_style = style;
+    save_settings(&state.settings_path, &settings)?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(snapshot(&state))
 }
 
 #[tauri::command]
@@ -289,7 +367,7 @@ fn main() {
                 if !argument.starts_with('-')
                     && (argument.contains(':') || std::path::Path::new(&argument).is_file())
                 {
-                    receive_url(app.handle(), &argument);
+                    receive_url(app.handle(), &argument, None);
                 }
             }
             Ok(())
@@ -299,6 +377,7 @@ fn main() {
             choose_browser,
             skip_link,
             set_picker_layout,
+            set_picker_style,
             replace_rules
         ])
         .build(tauri::generate_context!())
@@ -320,7 +399,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Opened { urls } => {
             for url in urls {
-                receive_url(app, url.as_str());
+                receive_url(app, url.as_str(), None);
             }
         }
         #[cfg(target_os = "macos")]

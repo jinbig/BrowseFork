@@ -5,9 +5,20 @@ use std::path::Path;
 use url::Url;
 
 mod routing;
-pub use routing::{dispatch_link, route_link, DispatchOutcome, LinkRoute, PendingLinks};
+pub use routing::{
+    dispatch_link, dispatch_link_for_source, route_link, route_link_for_source, DispatchOutcome,
+    LinkRoute, PendingLinks,
+};
 
 pub const SETTINGS_VERSION: u32 = 1;
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PickerStyle {
+    #[default]
+    Switcher,
+    List,
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -20,6 +31,8 @@ pub enum MatchMode {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Rule {
     pub id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_app_id: Option<String>,
     pub mode: MatchMode,
     pub pattern: String,
     pub browser_id: String,
@@ -30,6 +43,8 @@ pub struct Rule {
 pub struct Settings {
     pub version: u32,
     pub rules: Vec<Rule>,
+    #[serde(default)]
+    pub picker_style: PickerStyle,
 }
 
 impl Default for Settings {
@@ -37,6 +52,7 @@ impl Default for Settings {
         Self {
             version: SETTINGS_VERSION,
             rules: Vec::new(),
+            picker_style: PickerStyle::default(),
         }
     }
 }
@@ -86,11 +102,18 @@ pub fn validate_rule(rule: &Rule) -> Result<(), String> {
         return Err("Choose a browser".into());
     }
     let pattern = rule.pattern.trim();
-    if pattern.is_empty() {
-        return Err("Enter a match pattern".into());
+    let source_app_id = rule.source_app_id.as_deref().map(str::trim).unwrap_or("");
+    if pattern.is_empty() && source_app_id.is_empty() {
+        return Err("Choose a source app or enter a URL pattern".into());
+    }
+    if source_app_id.len() > 512 || source_app_id.chars().any(char::is_whitespace) {
+        return Err("Enter a valid source app bundle ID".into());
     }
     if pattern.len() > 2_048 {
         return Err("Match pattern is too long".into());
+    }
+    if pattern.is_empty() {
+        return Ok(());
     }
     match rule.mode {
         MatchMode::Host => {
@@ -117,13 +140,33 @@ pub fn validate_rule(rule: &Rule) -> Result<(), String> {
 }
 
 pub fn matching_rule<'a>(settings: &'a Settings, url: &Url) -> Option<&'a Rule> {
+    matching_rule_for_source(settings, url, None)
+}
+
+pub fn matching_rule_for_source<'a>(
+    settings: &'a Settings,
+    url: &Url,
+    source_app_id: Option<&str>,
+) -> Option<&'a Rule> {
     let full_url = url.as_str();
     let host = url.host_str().unwrap_or_default();
     settings.rules.iter().find(|rule| {
         if !rule.enabled {
             return false;
         }
+        if let Some(required) = rule
+            .source_app_id
+            .as_deref()
+            .filter(|id| !id.trim().is_empty())
+        {
+            if !source_app_id.is_some_and(|source| source.eq_ignore_ascii_case(required)) {
+                return false;
+            }
+        }
         let pattern = rule.pattern.trim();
+        if pattern.is_empty() {
+            return true;
+        }
         match rule.mode {
             MatchMode::Host => {
                 let pattern = pattern.trim_start_matches("*.");
@@ -149,6 +192,16 @@ impl Settings {
         pattern: String,
         browser_id: String,
     ) -> Result<Rule, String> {
+        self.add_rule_for_source(None, mode, pattern, browser_id)
+    }
+
+    pub fn add_rule_for_source(
+        &mut self,
+        source_app_id: Option<String>,
+        mode: MatchMode,
+        pattern: String,
+        browser_id: String,
+    ) -> Result<Rule, String> {
         let next_id = self
             .rules
             .iter()
@@ -159,6 +212,9 @@ impl Settings {
             .ok_or("Too many rules")?;
         let rule = Rule {
             id: next_id,
+            source_app_id: source_app_id
+                .map(|id| id.trim().to_owned())
+                .filter(|id| !id.is_empty()),
             mode,
             pattern: pattern.trim().to_owned(),
             browser_id,
@@ -200,6 +256,7 @@ pub fn load_settings(path: &Path) -> Result<Settings, String> {
     }
     let mut checked = Settings::default();
     checked.replace_rules(settings.rules)?;
+    checked.picker_style = settings.picker_style;
     Ok(checked)
 }
 
@@ -359,6 +416,84 @@ mod tests {
     }
 
     #[test]
+    fn source_app_and_url_conditions_match_in_rule_order() {
+        let mut settings = Settings::default();
+        settings
+            .add_rule(MatchMode::Host, "example.com".into(), "fallback".into())
+            .unwrap();
+        settings
+            .add_rule_for_source(
+                Some("com.tinyspeck.slackmacgap".into()),
+                MatchMode::Contains,
+                "/work/".into(),
+                "slack-work".into(),
+            )
+            .unwrap();
+        settings
+            .add_rule_for_source(
+                Some("com.apple.mail".into()),
+                MatchMode::Host,
+                String::new(),
+                "mail-all".into(),
+            )
+            .unwrap();
+        let work = parse_web_url("https://example.com/work/page").unwrap();
+        assert_eq!(
+            matching_rule_for_source(&settings, &work, Some("com.tinyspeck.slackmacgap"))
+                .unwrap()
+                .browser_id,
+            "slack-work"
+        );
+        assert_eq!(
+            matching_rule_for_source(&settings, &work, Some("com.apple.mail"))
+                .unwrap()
+                .browser_id,
+            "mail-all"
+        );
+        assert_eq!(
+            matching_rule_for_source(&settings, &work, None)
+                .unwrap()
+                .browser_id,
+            "fallback"
+        );
+        assert_eq!(
+            matching_rule_for_source(&settings, &work, Some("com.other.app"))
+                .unwrap()
+                .browser_id,
+            "fallback"
+        );
+        let other = parse_web_url("https://other.test/").unwrap();
+        assert!(matching_rule_for_source(&settings, &other, None).is_none());
+    }
+
+    #[test]
+    fn rejects_rule_with_any_app_and_any_url() {
+        let mut settings = Settings::default();
+        assert!(settings
+            .add_rule_for_source(None, MatchMode::Host, String::new(), "browser".into())
+            .unwrap_err()
+            .contains("source app or enter a URL pattern"));
+        assert!(settings
+            .add_rule_for_source(
+                Some("  ".into()),
+                MatchMode::Host,
+                String::new(),
+                "browser".into()
+            )
+            .is_err());
+        assert!(settings.rules.is_empty());
+    }
+
+    #[test]
+    fn legacy_rules_load_as_any_app() {
+        let rule: Rule = serde_json::from_str(
+            r#"{"id":1,"mode":"host","pattern":"example.com","browser_id":"browser","enabled":true}"#
+        ).unwrap();
+        assert_eq!(rule.source_app_id, None);
+        validate_rule(&rule).unwrap();
+    }
+
+    #[test]
     fn preferences_round_trip_and_reject_corruption() {
         let folder = std::env::temp_dir().join(format!(
             "browsefork-core-test-{}-{}",
@@ -369,16 +504,26 @@ mod tests {
                 .as_nanos()
         ));
         let path = folder.join("nested/preferences.json");
-        assert!(load_settings(&path).unwrap().rules.is_empty());
+        let defaults = load_settings(&path).unwrap();
+        assert!(defaults.rules.is_empty());
+        assert_eq!(defaults.picker_style, PickerStyle::Switcher);
 
         let mut settings = Settings::default();
         settings
             .add_rule(MatchMode::Host, "example.com".into(), "browser".into())
             .unwrap();
+        settings.picker_style = PickerStyle::List;
         save_settings(&path, &settings).unwrap();
         let loaded = load_settings(&path).unwrap();
         assert_eq!(loaded.version, SETTINGS_VERSION);
         assert_eq!(loaded.rules, settings.rules);
+        assert_eq!(loaded.picker_style, PickerStyle::List);
+
+        std::fs::write(&path, r#"{"version":1,"rules":[]}"#).unwrap();
+        assert_eq!(
+            load_settings(&path).unwrap().picker_style,
+            PickerStyle::Switcher
+        );
 
         std::fs::write(&path, r#"{"version":999,"rules":[]}"#).unwrap();
         assert!(load_settings(&path)

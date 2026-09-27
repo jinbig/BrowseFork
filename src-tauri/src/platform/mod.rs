@@ -8,18 +8,29 @@ pub struct Browser {
     pub icon_data_url: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SourceApp {
+    pub id: String,
+    pub name: String,
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 
 #[cfg(target_os = "macos")]
 pub use macos::{
-    capture_delegate_urls, install_launch_observer, install_url_handler, list_browsers, open_url,
-    was_default_launch,
+    capture_delegate_urls, install_launch_observer, install_url_handler, list_browsers,
+    list_source_apps, open_url, was_default_launch,
 };
 
 #[cfg(not(target_os = "macos"))]
 pub fn list_browsers() -> Result<Vec<Browser>, String> {
     Err("Browser discovery is not implemented on this platform yet".into())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn list_source_apps() -> Vec<SourceApp> {
+    Vec::new()
 }
 
 #[cfg(not(target_os = "macos"))]

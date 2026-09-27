@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BrowseFork</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="main.js" defer></script>
+  </head>
+  <body>
+    <main id="shell" class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true">⑂</span> BrowseFork</div>
+        <button id="settings-toggle" class="quiet-button" type="button">Preferences</button>
+      </header>
+
+      <div id="message" class="message" role="status" hidden></div>
+
+      <section id="chooser-view" hidden>
+        <h1>Open with</h1>
+        <p id="pending-host" class="pending-host"></p>
+        <div id="browser-list" class="browser-list" aria-label="Available browsers"></div>
+
+        <div id="save-card" class="save-card">
+          <label class="checkbox-row" for="save-choice">
+            <input id="save-choice" type="checkbox" />
+            <span>Save choice</span>
+          </label>
+          <div id="save-rule-fields" class="rule-fields" hidden>
+            <label for="save-mode">Match using</label>
+            <select id="save-mode">
+              <option value="host">This host and its subdomains</option>
+              <option value="contains">URL contains text</option>
+              <option value="regex">Regular expression</option>
+            </select>
+            <label for="save-pattern">Pattern</label>
+            <input id="save-pattern" type="text" spellcheck="false" autocomplete="off" />
+            <p class="field-hint">Rules are checked from top to bottom. The first match wins.</p>
+          </div>
+        </div>
+        <div class="chooser-footer">
+          <span class="keyboard-hint">Tab to move · Enter to open · Esc to skip</span>
+          <span id="queue-status" class="queue-status" hidden></span>
+          <button id="skip-link" class="quiet-button" type="button">Skip</button>
+        </div>
+      </section>
+
+      <section id="settings-view" hidden>
+        <p class="eyebrow">PREFERENCES</p>
+        <h1>Link rules</h1>
+        <p class="intro">Matching links open automatically. Other links show the browser picker.</p>
+        <div id="rules-list" class="rules-list"></div>
+
+        <form id="rule-form" class="rule-form">
+          <h2 id="rule-form-title">Add a rule</h2>
+          <div class="form-grid">
+            <label for="rule-mode">Match using</label>
+            <select id="rule-mode">
+              <option value="host">Host and subdomains</option>
+              <option value="contains">URL contains text</option>
+              <option value="regex">Regular expression</option>
+            </select>
+            <label for="rule-pattern">Pattern</label>
+            <input id="rule-pattern" type="text" spellcheck="false" autocomplete="off" placeholder="example.com" required />
+            <label for="rule-browser">Open in</label>
+            <select id="rule-browser" required></select>
+          </div>
+          <div class="form-actions">
+            <button id="cancel-edit" class="quiet-button" type="button" hidden>Cancel edit</button>
+            <button class="primary-button" type="submit">Save rule</button>
+          </div>
+        </form>
+        <p class="setup-note">To catch links from other apps on macOS, install BrowseFork.app and select BrowseFork as the default web browser in System Settings.</p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -280,4 +280,111 @@ mod tests {
         assert!(parse_openable_url("file:///private/tmp/document.pdf").is_err());
         assert!(parse_openable_url("file://remote-host/private/tmp/saml.html").is_err());
     }
+
+    #[test]
+    fn disabled_rules_are_skipped_and_reordering_changes_priority() {
+        let mut settings = Settings::default();
+        let broad = settings
+            .add_rule(MatchMode::Host, "example.com".into(), "broad".into())
+            .unwrap();
+        let specific = settings
+            .add_rule(MatchMode::Contains, "/private/".into(), "specific".into())
+            .unwrap();
+        let url = parse_web_url("https://example.com/private/page").unwrap();
+        assert_eq!(
+            matching_rule(&settings, &url).unwrap().browser_id,
+            "specific"
+        );
+
+        settings
+            .replace_rules(vec![broad.clone(), specific.clone()])
+            .unwrap();
+        assert_eq!(matching_rule(&settings, &url).unwrap().browser_id, "broad");
+
+        let mut disabled = broad;
+        disabled.enabled = false;
+        settings.replace_rules(vec![disabled, specific]).unwrap();
+        assert_eq!(
+            matching_rule(&settings, &url).unwrap().browser_id,
+            "specific"
+        );
+    }
+
+    #[test]
+    fn invalid_rule_updates_leave_existing_rules_intact() {
+        let mut settings = Settings::default();
+        let valid = settings
+            .add_rule(MatchMode::Host, "example.com".into(), "browser".into())
+            .unwrap();
+        assert!(settings
+            .replace_rules(vec![valid.clone(), valid.clone()])
+            .is_err());
+        assert_eq!(settings.rules, vec![valid.clone()]);
+
+        let mut invalid = valid.clone();
+        invalid.pattern = "https://example.com/path".into();
+        assert!(settings.replace_rules(vec![invalid]).is_err());
+        assert_eq!(settings.rules, vec![valid]);
+    }
+
+    #[test]
+    fn contains_is_case_insensitive_while_regex_keeps_its_flags() {
+        let url = parse_web_url("https://example.com/Private/Document").unwrap();
+        let mut settings = Settings::default();
+        settings
+            .add_rule(MatchMode::Contains, "/private/".into(), "contains".into())
+            .unwrap();
+        assert_eq!(
+            matching_rule(&settings, &url).unwrap().browser_id,
+            "contains"
+        );
+
+        settings
+            .add_rule(MatchMode::Regex, "/private/".into(), "regex".into())
+            .unwrap();
+        assert_eq!(
+            matching_rule(&settings, &url).unwrap().browser_id,
+            "contains"
+        );
+        settings
+            .add_rule(MatchMode::Regex, "(?i)/private/".into(), "flagged".into())
+            .unwrap();
+        assert_eq!(
+            matching_rule(&settings, &url).unwrap().browser_id,
+            "flagged"
+        );
+    }
+
+    #[test]
+    fn preferences_round_trip_and_reject_corruption() {
+        let folder = std::env::temp_dir().join(format!(
+            "browsefork-core-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = folder.join("nested/preferences.json");
+        assert!(load_settings(&path).unwrap().rules.is_empty());
+
+        let mut settings = Settings::default();
+        settings
+            .add_rule(MatchMode::Host, "example.com".into(), "browser".into())
+            .unwrap();
+        save_settings(&path, &settings).unwrap();
+        let loaded = load_settings(&path).unwrap();
+        assert_eq!(loaded.version, SETTINGS_VERSION);
+        assert_eq!(loaded.rules, settings.rules);
+
+        std::fs::write(&path, r#"{"version":999,"rules":[]}"#).unwrap();
+        assert!(load_settings(&path)
+            .unwrap_err()
+            .contains("Unsupported preferences version"));
+        std::fs::write(&path, "not json").unwrap();
+        assert!(load_settings(&path)
+            .unwrap_err()
+            .contains("Cannot parse preferences"));
+        std::fs::remove_dir_all(folder).unwrap();
+    }
 }

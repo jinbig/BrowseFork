@@ -4,6 +4,9 @@ use std::fs;
 use std::path::Path;
 use url::Url;
 
+mod routing;
+pub use routing::{dispatch_link, route_link, DispatchOutcome, LinkRoute, PendingLinks};
+
 pub const SETTINGS_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

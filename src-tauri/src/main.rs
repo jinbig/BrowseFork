@@ -3,12 +3,11 @@
 mod platform;
 
 use browsefork_core::{
-    load_settings, matching_rule, parse_openable_url, save_settings, suggested_pattern, MatchMode,
-    Rule, Settings,
+    dispatch_link, load_settings, parse_openable_url, save_settings, suggested_pattern,
+    DispatchOutcome, MatchMode, PendingLinks, Rule, Settings,
 };
 use platform::Browser;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
 #[cfg(target_os = "macos")]
@@ -20,7 +19,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WindowEvent};
 
 struct AppState {
     settings: Mutex<Settings>,
-    pending: Mutex<VecDeque<String>>,
+    pending: Mutex<PendingLinks>,
     settings_path: PathBuf,
     startup_error: Mutex<Option<String>>,
 }
@@ -62,7 +61,7 @@ struct ChooseResult {
 
 fn snapshot(state: &AppState) -> Snapshot {
     let pending = state.pending.lock().unwrap();
-    let pending_url = pending.front().cloned();
+    let pending_url = pending.front().map(str::to_owned);
     let pending_count = pending.len();
     drop(pending);
     let suggested_pattern = pending_url
@@ -125,8 +124,7 @@ fn show_preferences(app: &AppHandle) {
 fn queue_link(app: &AppHandle, raw: String) {
     let state = app.state::<AppState>();
     let mut pending = state.pending.lock().unwrap();
-    pending.retain(|waiting| waiting != &raw);
-    pending.push_front(raw);
+    pending.push(raw);
     drop(pending);
     show_window(app, false);
     notify(app);
@@ -141,25 +139,19 @@ fn receive_url(app: &AppHandle, raw: &str) {
         show_preferences(app);
         return;
     }
-    let Ok(url) = parse_openable_url(raw) else {
-        queue_link(app, raw.to_owned());
-        return;
-    };
     let state = app.state::<AppState>();
-    let selected = {
-        let settings = state.settings.lock().unwrap();
-        matching_rule(&settings, &url).map(|rule| rule.browser_id.clone())
-    };
-    if let Some(browser_id) = selected {
-        if let Ok(browsers) = platform::list_browsers() {
-            if let Some(browser) = browsers.iter().find(|browser| browser.id == browser_id) {
-                if platform::open_url(browser, url.as_str()).is_ok() {
-                    return;
-                }
-            }
-        }
+    let settings = state.settings.lock().unwrap().clone();
+    let outcome = dispatch_link(raw, &settings, |browser_id, url| {
+        let browsers = platform::list_browsers()?;
+        let browser = browsers
+            .iter()
+            .find(|browser| browser.id == browser_id)
+            .ok_or("Rule browser is no longer available")?;
+        platform::open_url(browser, url)
+    });
+    if let DispatchOutcome::NeedsChoice { url } = outcome {
+        queue_link(app, url);
     }
-    queue_link(app, url.to_string());
 }
 
 #[tauri::command]
@@ -183,7 +175,7 @@ fn choose_browser(
     let mut pending = state.pending.lock().unwrap();
     let url = pending
         .front()
-        .cloned()
+        .map(str::to_owned)
         .ok_or("There is no link waiting to open")?;
     if url != expected_url {
         return Err("A newer link arrived. Choose a browser for the link now shown.".into());
@@ -235,7 +227,7 @@ fn skip_link(
     expected_url: String,
 ) -> Result<Snapshot, String> {
     let mut pending = state.pending.lock().unwrap();
-    if pending.front().map(String::as_str) != Some(expected_url.as_str()) {
+    if pending.front() != Some(expected_url.as_str()) {
         return Err("A newer link arrived. Review the link now shown.".into());
     }
     pending.pop_front();
@@ -283,7 +275,7 @@ fn main() {
             };
             app.manage(AppState {
                 settings: Mutex::new(settings),
-                pending: Mutex::new(VecDeque::new()),
+                pending: Mutex::new(PendingLinks::default()),
                 settings_path,
                 startup_error: Mutex::new(startup_error),
             });

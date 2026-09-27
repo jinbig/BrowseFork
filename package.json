@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "test": "node --test tests/ui.test.cjs",
+    "test:bundle": "node --test tests/macos-bundle.test.cjs",
+    "test:macos-smoke": "node --test tests/macos-smoke.cjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
   }
 }
-

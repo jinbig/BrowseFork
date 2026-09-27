@@ -6,13 +6,17 @@ Run these from the repository root:
 
 ```sh
 cargo test --workspace
+npm test
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 node --check ui/main.js
 npm run build
+npm run test:bundle
 ```
 
-The Rust tests cover host boundaries, rule order and disabled rules, substring and regex matching, invalid rules, settings persistence and corruption, and local HTML URL handling. The build checks that the macOS app can be packaged; it does not exercise delivery of links from another app.
+The Rust tests cover host boundaries, rule order and disabled rules, substring and regex matching, invalid rules, settings persistence and corruption, local HTML URL handling, routing, fallback after a failed browser launch, and pending-link order. `npm test` exercises the actual chooser script with a mocked Tauri bridge, including Tab, Save choice, Escape, and a new local HTML link. `test:bundle` checks that the built macOS app registers its URL and document types. The build alone does not exercise delivery of links from another app.
+
+For a live macOS smoke test, install the app, close any existing BrowseFork window, grant your Terminal Accessibility access, and run `npm run test:macos-smoke`. It sends a unique `.invalid` HTTPS link to the installed app, checks that the chooser displays that exact host, presses Escape, and checks that the window hides. This test needs a logged-in desktop session and intentionally runs only when requested.
 
 ## macOS acceptance checklist
 
@@ -38,7 +42,6 @@ For authentication, run one real GlobalProtect sign-in after the harmless local 
 
 ## Remaining automation work
 
-1. Add UI interaction tests with a mocked Tauri bridge for keyboard focus, Save choice, and Escape behavior.
-2. Extract link dispatch and queue decisions from the Tauri app into a testable Rust module, then test cold start, matched rules, failed launches, and multiple pending links.
-3. Add a macOS integration harness around the installed app to send URL events and verify window visibility and browser launch. Run it on a real macOS desktop session.
-4. Add Windows and Linux integration tests after their native adapters are implemented.
+1. Expand the macOS smoke test to verify the chosen browser receives the exact URL. This needs a safe browser-side observation mechanism.
+2. Add a repeatable test of a real GlobalProtect sign-in on a developer machine; a synthetic HTML file does not prove the VPN flow works.
+3. Add Windows and Linux integration tests after their native adapters are implemented.

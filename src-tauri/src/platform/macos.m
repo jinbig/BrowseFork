@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -33,6 +34,26 @@ void browsefork_install_launch_observer(void) {
 
 bool browsefork_was_default_launch(void) {
     return browseforkWasDefaultLaunch;
+}
+
+void browsefork_style_picker_window(void *native_window, bool switcher) {
+    NSWindow *window = (__bridge NSWindow *)native_window;
+    if (!window) return;
+    NSView *content = window.contentView;
+    if (!content) return;
+    content.wantsLayer = YES;
+    content.layer.cornerRadius = switcher ? 24.0 : 0.0;
+    content.layer.masksToBounds = switcher;
+    window.opaque = !switcher;
+    window.backgroundColor = switcher ? NSColor.clearColor : NSColor.windowBackgroundColor;
+    [window invalidateShadow];
+}
+
+void browsefork_activate_window(void *native_window) {
+    NSWindow *window = (__bridge NSWindow *)native_window;
+    if (!window) return;
+    [NSApp activateIgnoringOtherApps:YES];
+    [window makeKeyAndOrderFront:nil];
 }
 
 static void browsefork_open_urls(id self, SEL selector, NSApplication *app,
@@ -110,7 +131,7 @@ static bool browsefork_is_browser(NSBundle *bundle) {
 static NSString *browsefork_icon_data_url(NSWorkspace *workspace, NSString *path) {
     NSImage *icon = [workspace iconForFile:path];
     if (!icon) return nil;
-    const NSInteger iconPixels = 192;
+    const NSInteger iconPixels = 384;
     NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc]
         initWithBitmapDataPlanes:NULL
                      pixelsWide:iconPixels

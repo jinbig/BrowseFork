@@ -1,12 +1,12 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #202635;
-  background: #f5f6f9;
+  background: transparent;
   font-synthesis: none;
 }
 
 * { box-sizing: border-box; }
-body { min-height: 100vh; margin: 0; }
+body { min-height: 100vh; margin: 0; background: #f5f6f9; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
@@ -74,7 +74,7 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .chooser-footer { order: 5; }
 .selected-browser { margin: 0 0 12px; font-size: 16px; font-weight: 650; text-align: center; }
 
-.chooser-mode.picker-switcher { background: #1c2229; color: #f7f8fa; }
+.chooser-mode.picker-switcher { background: #1c2229; color: #f7f8fa; border-radius: 24px; overflow: hidden; }
 .picker-switcher .shell { max-width: none; padding: 8px 12px 10px; }
 .picker-switcher .topbar { margin-bottom: 3px; }
 .picker-switcher .brand { color: #e4e8ee; font-size: 13px; }
@@ -85,18 +85,20 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .picker-switcher #browser-list { order: 1; }
 .picker-switcher #selected-browser { order: 2; }
 .picker-switcher #pending-host { order: 3; }
-.picker-switcher #browser-list { display: flex; justify-content: flex-start; gap: 5px; width: max-content; max-width: 100%; min-height: 82px; max-height: none; margin: 0 auto; padding: 2px; overflow-x: auto; overflow-y: hidden; }
-.picker-switcher .browser-button { position: relative; flex: 0 0 76px; display: grid; place-items: center; min-height: 78px; padding: 5px; border: 2px solid transparent; border-radius: 14px; background: transparent; color: white; }
+.picker-switcher #browser-list { display: flex; justify-content: flex-start; gap: 8px; width: 100%; min-height: 90px; max-height: none; margin: 0 auto; padding: 5px 8px; overflow-x: auto; overflow-y: hidden; }
+.picker-switcher #browser-list .browser-button:first-child { margin-left: auto; }
+.picker-switcher #browser-list .browser-button:last-child { margin-right: auto; }
+.picker-switcher .browser-button { position: relative; flex: 0 0 82px; display: grid; place-items: center; min-height: 80px; padding: 7px; border: 2px solid transparent; border-radius: 17px; background: transparent; color: white; }
 .picker-switcher .browser-button:hover { background: #343c46; }
 .picker-switcher .browser-button.is-selected,
 .picker-switcher.keyboard-navigation .browser-button:focus { border-color: #818c99; background: #4a545f; outline: none; }
 .picker-switcher .browser-icon,
-.picker-switcher .browser-icon-fallback { width: 60px; height: 60px; }
+.picker-switcher .browser-icon-fallback { width: 56px; height: 56px; }
 .picker-switcher .browser-icon-fallback { border-radius: 13px; background: #4559d8; color: white; font-size: 28px; }
 .picker-switcher .browser-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.picker-switcher .browser-shortcut { position: absolute; right: 4px; bottom: 6px; display: block; padding: 1px 3px; border-radius: 4px; background: #172029d9; color: white; font-size: 10px; font-weight: 700; }
-.picker-switcher .selected-browser { margin: 2px 0 2px; color: #f7f8fa; font-size: 14px; }
-.picker-switcher .pending-host { max-width: 100%; margin: 0 0 8px; color: #e2e5e9; font-size: 12px; font-weight: 550; text-align: center; }
+.picker-switcher .browser-shortcut { position: absolute; right: 5px; bottom: 6px; display: block; padding: 1px 3px; border-radius: 4px; background: #172029e6; color: white; font-size: 10px; font-weight: 700; }
+.picker-switcher .selected-browser { margin: 2px 0 2px; color: #f7f8fa; font-size: 14px; font-weight: 700; }
+.picker-switcher .pending-host { max-width: 100%; margin: 0 0 8px; color: #e2e5e9; font-size: 12px; font-weight: 600; text-align: center; }
 .picker-switcher .save-card { padding: 7px 9px; border-color: #424b55; background: #29313b; }
 .picker-switcher .checkbox-row { color: #e4e8ee; font-size: 12px; }
 .picker-switcher .rule-fields label { color: #c5ccd5; }

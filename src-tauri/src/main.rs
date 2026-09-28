@@ -119,8 +119,14 @@ fn set_window_layout(
             .unwrap()
             .picker_style;
         let switcher = !settings && picker_style == PickerStyle::Switcher;
-        if let Err(error) = window.set_decorations(!switcher) {
-            eprintln!("BrowseFork: could not update window decorations: {error}");
+        if window.is_decorated().ok() != Some(!switcher) {
+            if let Err(error) = window.set_decorations(!switcher) {
+                eprintln!("BrowseFork: could not update window decorations: {error}");
+            }
+        }
+        #[cfg(target_os = "macos")]
+        if let Err(error) = platform::style_picker_window(&window, switcher) {
+            eprintln!("BrowseFork: could not update picker corners: {error}");
         }
         let (width, height) = if settings {
             (620.0, 500.0)
@@ -166,7 +172,15 @@ fn show_window(app: &AppHandle, settings: bool) {
     set_window_layout(app, settings, None, Some(width));
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
+        #[cfg(target_os = "macos")]
+        if let Err(error) = platform::activate_window(&window) {
+            eprintln!("BrowseFork: could not activate chooser window: {error}");
+        }
         let _ = window.set_focus();
+        let webview: &tauri::Webview = window.as_ref();
+        if let Err(error) = webview.set_focus() {
+            eprintln!("BrowseFork: could not focus chooser content: {error}");
+        }
     }
 }
 
@@ -314,6 +328,17 @@ fn set_picker_layout(
     content_width: Option<f64>,
 ) {
     set_window_layout(&app, settings, content_height, content_width);
+    #[cfg(target_os = "macos")]
+    if !settings {
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_visible().unwrap_or(false) {
+                let webview: &tauri::Webview = window.as_ref();
+                if let Err(error) = webview.set_focus() {
+                    eprintln!("BrowseFork: could not focus chooser content: {error}");
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]

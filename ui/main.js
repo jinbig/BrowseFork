@@ -208,7 +208,6 @@ function render() {
       displayedUrl = snapshot.pending_url;
       selectedBrowserId = null;
       document.body.classList.remove("keyboard-navigation");
-      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       $("save-choice").checked = false;
       $("save-rule-fields").hidden = true;
       const sourceSelect = $("save-source-app");
@@ -257,7 +256,7 @@ function updateLayout() {
       settings,
       contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
       contentWidth: settings ? null : pickerStyle() === "switcher"
-        ? Math.min(760, Math.max(320, snapshot.browsers.length * 84 + 40)) : 440
+        ? Math.min(760, Math.max(320, snapshot.browsers.length * 90 + 32)) : 440
     }).catch((error) => message(String(error)));
   });
 }

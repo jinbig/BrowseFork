@@ -1,5 +1,6 @@
 use super::{Browser, SourceApp};
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, c_void, CStr, CString};
+use tauri::WebviewWindow;
 
 extern "C" {
     fn browsefork_capture_delegate_urls() -> bool;
@@ -10,6 +11,8 @@ extern "C" {
     fn browsefork_list_source_apps() -> *mut c_char;
     fn browsefork_open_url(app_path: *const c_char, url: *const c_char) -> bool;
     fn browsefork_free_string(value: *mut c_char);
+    fn browsefork_style_picker_window(window: *mut c_void, switcher: bool);
+    fn browsefork_activate_window(window: *mut c_void);
 }
 
 pub fn capture_delegate_urls() -> bool {
@@ -26,6 +29,24 @@ pub fn install_launch_observer() {
 
 pub fn was_default_launch() -> bool {
     unsafe { browsefork_was_default_launch() }
+}
+
+pub fn style_picker_window(window: &WebviewWindow, switcher: bool) -> Result<(), String> {
+    let native = window.ns_window().map_err(|error| error.to_string())? as usize;
+    window
+        .run_on_main_thread(move || unsafe {
+            browsefork_style_picker_window(native as *mut c_void, switcher);
+        })
+        .map_err(|error| error.to_string())
+}
+
+pub fn activate_window(window: &WebviewWindow) -> Result<(), String> {
+    let native = window.ns_window().map_err(|error| error.to_string())? as usize;
+    window
+        .run_on_main_thread(move || unsafe {
+            browsefork_activate_window(native as *mut c_void);
+        })
+        .map_err(|error| error.to_string())
 }
 
 pub fn list_browsers() -> Result<Vec<Browser>, String> {

@@ -19,8 +19,8 @@ mod macos;
 
 #[cfg(target_os = "macos")]
 pub use macos::{
-    capture_delegate_urls, install_launch_observer, install_url_handler, list_browsers,
-    list_source_apps, open_url, was_default_launch,
+    activate_window, capture_delegate_urls, install_launch_observer, install_url_handler,
+    list_browsers, list_source_apps, open_url, style_picker_window, was_default_launch,
 };
 
 #[cfg(not(target_os = "macos"))]

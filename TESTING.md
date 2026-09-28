@@ -27,7 +27,8 @@ Use the installed, signed app and a disposable URL or local HTML file. Observe b
 | Launch BrowseFork from Applications | Preferences opens. |
 | Open an unmatched HTTPS link from Terminal with `open 'https://example.com/browsefork-test'` while BrowseFork is the default browser | The chooser shows the link's host and the installed browsers. |
 | Open an unmatched link from Slack | The chooser appears in front and selecting a browser opens the exact link once. |
-| Press Tab through the chooser | Focus moves through browser choices, Save choice, and the extra rule controls when enabled. |
+| Open a link while another app is active, then press Tab without clicking BrowseFork | BrowseFork becomes the active app and focus moves through browser choices, Save choice, and the extra rule controls when enabled. |
+| Press Esc, open another unmatched link, then press Tab without clicking BrowseFork | The reopened chooser focuses its first browser again. |
 | Open the icon switcher | Browser icons are sharp, and there is no native title bar or app-name header. The gear opens Preferences. |
 | Open Preferences or choose Browser list | The standard title bar returns. |
 | Change Browser picker in Preferences, then restart the app | The selected icon switcher or browser list remains active. |

@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Matches the switcher border radius in ui/styles.css.
+static const CGFloat BrowseForkSwitcherCornerRadius = 24.0;
+
 typedef void (*BrowseForkURLCallback)(const char *, const char *);
 static BrowseForkURLCallback browseforkURLCallback;
 static NSMutableArray<NSDictionary *> *browseforkPendingURLs;
@@ -42,7 +45,7 @@ void browsefork_style_picker_window(void *native_window, bool switcher) {
     NSView *content = window.contentView;
     if (!content) return;
     content.wantsLayer = YES;
-    content.layer.cornerRadius = switcher ? 24.0 : 0.0;
+    content.layer.cornerRadius = switcher ? BrowseForkSwitcherCornerRadius : 0.0;
     content.layer.masksToBounds = switcher;
     window.opaque = !switcher;
     window.backgroundColor = switcher ? NSColor.clearColor : NSColor.windowBackgroundColor;

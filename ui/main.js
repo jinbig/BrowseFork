@@ -12,6 +12,21 @@ let selectedBrowserId = null;
 const pickerStyle = () => snapshot?.picker_style || "switcher";
 const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
 
+const LIST_PICKER_WIDTH = 440;
+const MIN_SWITCHER_WIDTH = 320;
+const MAX_PICKER_WIDTH = 760;
+// Keep these dimensions in sync with the switcher tile, gap, and horizontal padding in styles.css.
+const SWITCHER_TILE_WIDTH = 82;
+const SWITCHER_TILE_GAP = 8;
+const SWITCHER_HORIZONTAL_INSETS = 40;
+
+function switcherWidth(browserCount) {
+  const tilesWidth = browserCount * SWITCHER_TILE_WIDTH;
+  const gapsWidth = Math.max(0, browserCount - 1) * SWITCHER_TILE_GAP;
+  return Math.min(MAX_PICKER_WIDTH,
+    Math.max(MIN_SWITCHER_WIDTH, tilesWidth + gapsWidth + SWITCHER_HORIZONTAL_INSETS));
+}
+
 function message(text) {
   $("message").textContent = text || "";
   $("message").hidden = !text;
@@ -256,7 +271,7 @@ function updateLayout() {
       settings,
       contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
       contentWidth: settings ? null : pickerStyle() === "switcher"
-        ? Math.min(760, Math.max(320, snapshot.browsers.length * 90 + 32)) : 440
+        ? switcherWidth(snapshot.browsers.length) : LIST_PICKER_WIDTH
     }).catch((error) => message(String(error)));
   });
 }

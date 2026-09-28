@@ -17,6 +17,34 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WindowEvent};
 
+const SETTINGS_WINDOW_SIZE: LogicalSize<f64> = LogicalSize {
+    width: 620.0,
+    height: 500.0,
+};
+// Keep the minimums aligned with tauri.conf.json and the maximum width with ui/main.js.
+const MIN_PICKER_WIDTH: f64 = 300.0;
+const MAX_PICKER_WIDTH: f64 = 760.0;
+const MIN_PICKER_HEIGHT: f64 = 200.0;
+const MAX_PICKER_HEIGHT: f64 = 720.0;
+const LIST_TITLE_BAR_FALLBACK_HEIGHT: f64 = 30.0;
+
+struct PickerLayout {
+    default_width: f64,
+    default_content_height: f64,
+    vertical_padding: f64,
+}
+
+const SWITCHER_LAYOUT: PickerLayout = PickerLayout {
+    default_width: 340.0,
+    default_content_height: 220.0,
+    vertical_padding: 4.0,
+};
+const LIST_LAYOUT: PickerLayout = PickerLayout {
+    default_width: 440.0,
+    default_content_height: 390.0,
+    vertical_padding: 32.0,
+};
+
 struct AppState {
     settings: Mutex<Settings>,
     pending: Mutex<PendingLinks>,
@@ -128,9 +156,14 @@ fn set_window_layout(
         if let Err(error) = platform::style_picker_window(&window, switcher) {
             eprintln!("BrowseFork: could not update picker corners: {error}");
         }
-        let (width, height) = if settings {
-            (620.0, 500.0)
+        let size = if settings {
+            SETTINGS_WINDOW_SIZE
         } else {
+            let layout = if switcher {
+                &SWITCHER_LAYOUT
+            } else {
+                &LIST_LAYOUT
+            };
             let frame_height = if switcher {
                 0.0
             } else {
@@ -142,34 +175,34 @@ fn set_window_layout(
                         let inner = window.inner_size().ok()?.to_logical::<f64>(scale);
                         Some(outer.height - inner.height)
                     })
-                    .unwrap_or(30.0)
+                    .unwrap_or(LIST_TITLE_BAR_FALLBACK_HEIGHT)
             };
-            let desired = content_height.unwrap_or(if switcher { 220.0 } else { 390.0 })
+            let desired_height = content_height.unwrap_or(layout.default_content_height)
                 + frame_height
-                + if switcher { 4.0 } else { 32.0 };
-            (
-                content_width
-                    .unwrap_or(if switcher { 340.0 } else { 440.0 })
-                    .clamp(300.0, 760.0),
-                desired.clamp(200.0, 720.0),
-            )
+                + layout.vertical_padding;
+            LogicalSize {
+                width: content_width
+                    .unwrap_or(layout.default_width)
+                    .clamp(MIN_PICKER_WIDTH, MAX_PICKER_WIDTH),
+                height: desired_height.clamp(MIN_PICKER_HEIGHT, MAX_PICKER_HEIGHT),
+            }
         };
-        let _ = window.set_size(LogicalSize::new(width, height));
+        let _ = window.set_size(size);
     }
 }
 
 fn show_window(app: &AppHandle, settings: bool) {
-    let width = match app
+    let layout = match app
         .state::<AppState>()
         .settings
         .lock()
         .unwrap()
         .picker_style
     {
-        PickerStyle::Switcher => 340.0,
-        PickerStyle::List => 440.0,
+        PickerStyle::Switcher => &SWITCHER_LAYOUT,
+        PickerStyle::List => &LIST_LAYOUT,
     };
-    set_window_layout(app, settings, None, Some(width));
+    set_window_layout(app, settings, None, Some(layout.default_width));
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         #[cfg(target_os = "macos")]

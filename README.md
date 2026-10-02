@@ -22,7 +22,7 @@ The routing engine and the HTML/CSS/JavaScript interface are shared. macOS integ
 - On macOS, the red close button quits BrowseFork. Opening another link launches it again.
 - Preferences let you add, edit, enable, disable, reorder, and delete rules.
 - Preferences suggest bundle IDs for running apps. You can also enter a bundle ID manually for an app that is not running.
-- Preferences are saved in Tauri's application config directory as `settings.json`.
+- Preferences, including the last Preferences window size, are saved in Tauri's application config directory as `settings.json`.
 
 ## Build on macOS
 

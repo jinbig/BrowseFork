@@ -4,7 +4,7 @@ mod platform;
 
 use browsefork_core::{
     dispatch_link_for_source, load_settings, parse_openable_url, save_settings, suggested_pattern,
-    DispatchOutcome, MatchMode, PendingLinks, PickerStyle, Rule, Settings,
+    DispatchOutcome, MatchMode, PendingLinks, PickerStyle, Rule, Settings, WindowSize,
 };
 use platform::{Browser, SourceApp};
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::{
     ffi::{c_char, CStr},
     sync::OnceLock,
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WindowEvent};
 
@@ -27,6 +28,10 @@ const MAX_PICKER_WIDTH: f64 = 760.0;
 const MIN_PICKER_HEIGHT: f64 = 200.0;
 const MAX_PICKER_HEIGHT: f64 = 720.0;
 const LIST_TITLE_BAR_FALLBACK_HEIGHT: f64 = 30.0;
+#[cfg(target_os = "macos")]
+const OPEN_EVENT_GRACE_PERIOD: Duration = Duration::from_millis(250);
+#[cfg(target_os = "macos")]
+const FOCUS_LOSS_GRACE_PERIOD: Duration = Duration::from_millis(300);
 
 struct PickerLayout {
     default_width: f64,
@@ -50,6 +55,17 @@ struct AppState {
     pending: Mutex<PendingLinks>,
     settings_path: PathBuf,
     startup_error: Mutex<Option<String>>,
+    presentation: Mutex<Presentation>,
+}
+
+#[derive(Default)]
+struct Presentation {
+    revision: u64,
+    requested_settings: Option<bool>,
+    rendered_settings: Option<bool>,
+    rendered_revision: u64,
+    rendered_url: Option<String>,
+    received_url: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -70,8 +86,94 @@ extern "C" fn macos_receive_url(raw: *const c_char, source_app_id: *const c_char
     }
 }
 
+#[cfg(target_os = "macos")]
+extern "C" fn macos_app_deactivated() {
+    if let Some(app) = MACOS_APP.get() {
+        let Some(inactive) = window_inactive_payload(app) else {
+            return;
+        };
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(FOCUS_LOSS_GRACE_PERIOD);
+            let callback_app = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let revision = callback_app
+                    .state::<AppState>()
+                    .presentation
+                    .lock()
+                    .unwrap()
+                    .revision;
+                if should_dismiss_inactive(&inactive, revision, platform::is_app_active()) {
+                    let _ = callback_app.emit("browsefork-window-inactive", inactive);
+                }
+            });
+        });
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct WindowInactive {
+    expected_revision: u64,
+    expected_url: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+fn should_dismiss_inactive(
+    inactive: &WindowInactive,
+    current_revision: u64,
+    app_active: bool,
+) -> bool {
+    !app_active && current_revision == inactive.expected_revision
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod presentation_tests {
+    use super::{should_apply_window_layout, should_dismiss_inactive, WindowInactive};
+
+    #[test]
+    fn a_late_focus_event_cannot_close_a_new_link() {
+        let inactive = WindowInactive {
+            expected_revision: 4,
+            expected_url: Some("https://first.invalid/".into()),
+        };
+        assert!(should_dismiss_inactive(&inactive, 4, false));
+        assert!(!should_dismiss_inactive(&inactive, 5, false));
+        assert!(!should_dismiss_inactive(&inactive, 4, true));
+    }
+
+    #[test]
+    fn preferences_keep_manual_size_during_refresh() {
+        assert!(should_apply_window_layout(true, false, Some(true)));
+        assert!(should_apply_window_layout(true, true, Some(false)));
+        assert!(!should_apply_window_layout(true, true, Some(true)));
+        assert!(should_apply_window_layout(false, true, Some(false)));
+    }
+}
+
+fn window_inactive_payload(app: &AppHandle) -> Option<WindowInactive> {
+    if let Some(window) = app.get_webview_window("main") {
+        if window.is_visible().unwrap_or(false) {
+            let state = app.state::<AppState>();
+            let presentation = state.presentation.lock().unwrap();
+            return Some(WindowInactive {
+                expected_revision: presentation.rendered_revision,
+                expected_url: presentation.rendered_url.clone(),
+            });
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn notify_window_inactive(app: &AppHandle) {
+    if let Some(inactive) = window_inactive_payload(app) {
+        let _ = app.emit("browsefork-window-inactive", inactive);
+    }
+}
+
 #[derive(Serialize)]
 struct Snapshot {
+    presentation_revision: u64,
     pending_url: Option<String>,
     pending_source_app_id: Option<String>,
     pending_count: usize,
@@ -117,6 +219,7 @@ fn snapshot(state: &AppState) -> Snapshot {
     let picker_style = settings.picker_style;
     drop(settings);
     Snapshot {
+        presentation_revision: state.presentation.lock().unwrap().revision,
         pending_url,
         pending_source_app_id,
         pending_count,
@@ -140,12 +243,8 @@ fn set_window_layout(
     content_width: Option<f64>,
 ) {
     if let Some(window) = app.get_webview_window("main") {
-        let picker_style = app
-            .state::<AppState>()
-            .settings
-            .lock()
-            .unwrap()
-            .picker_style;
+        let current_settings = app.state::<AppState>().settings.lock().unwrap().clone();
+        let picker_style = current_settings.picker_style;
         let switcher = !settings && picker_style == PickerStyle::Switcher;
         if window.is_decorated().ok() != Some(!switcher) {
             if let Err(error) = window.set_decorations(!switcher) {
@@ -157,7 +256,13 @@ fn set_window_layout(
             eprintln!("BrowseFork: could not update picker corners: {error}");
         }
         let size = if settings {
-            SETTINGS_WINDOW_SIZE
+            current_settings
+                .preferences_window_size
+                .map(|saved| LogicalSize {
+                    width: f64::from(saved.width).max(MIN_PICKER_WIDTH),
+                    height: f64::from(saved.height).max(MIN_PICKER_HEIGHT),
+                })
+                .unwrap_or(SETTINGS_WINDOW_SIZE)
         } else {
             let layout = if switcher {
                 &SWITCHER_LAYOUT
@@ -191,18 +296,49 @@ fn set_window_layout(
     }
 }
 
-fn show_window(app: &AppHandle, settings: bool) {
-    let layout = match app
-        .state::<AppState>()
-        .settings
-        .lock()
-        .unwrap()
-        .picker_style
-    {
-        PickerStyle::Switcher => &SWITCHER_LAYOUT,
-        PickerStyle::List => &LIST_LAYOUT,
+fn save_preferences_window_size(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.presentation.lock().unwrap().rendered_settings != Some(true) {
+        return;
+    }
+    let Some(window) = app.get_webview_window("main") else {
+        return;
     };
-    set_window_layout(app, settings, None, Some(layout.default_width));
+    if !window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let (Ok(physical), Ok(scale)) = (window.inner_size(), window.scale_factor()) else {
+        return;
+    };
+    let logical = physical.to_logical::<f64>(scale);
+    let size = WindowSize {
+        width: logical.width.round() as u32,
+        height: logical.height.round() as u32,
+    };
+    if size.width == 0 || size.height == 0 {
+        return;
+    }
+    let mut settings = state.settings.lock().unwrap();
+    if settings.preferences_window_size == Some(size) {
+        return;
+    }
+    let mut updated = settings.clone();
+    updated.preferences_window_size = Some(size);
+    match save_settings(&state.settings_path, &updated) {
+        Ok(()) => *settings = updated,
+        Err(error) => eprintln!("BrowseFork: could not save Preferences window size: {error}"),
+    }
+}
+
+fn should_apply_window_layout(
+    settings: bool,
+    visible: bool,
+    rendered_settings: Option<bool>,
+) -> bool {
+    !settings || !visible || rendered_settings != Some(true)
+}
+
+fn present_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         #[cfg(target_os = "macos")]
@@ -217,10 +353,70 @@ fn show_window(app: &AppHandle, settings: bool) {
     }
 }
 
+fn request_window(app: &AppHandle, settings: bool) {
+    if !settings {
+        save_preferences_window_size(app);
+    }
+    let state = app.state::<AppState>();
+    let mut presentation = state.presentation.lock().unwrap();
+    presentation.revision = presentation.revision.wrapping_add(1);
+    presentation.requested_settings = Some(settings);
+    let changing_view = presentation.rendered_settings != Some(settings);
+    if changing_view {
+        presentation.rendered_settings = None;
+        presentation.rendered_url = None;
+    }
+    drop(presentation);
+    if changing_view {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    }
+}
+
+fn hide_window(app: &AppHandle) {
+    save_preferences_window_size(app);
+    let state = app.state::<AppState>();
+    let mut presentation = state.presentation.lock().unwrap();
+    presentation.revision = presentation.revision.wrapping_add(1);
+    presentation.requested_settings = None;
+    presentation.rendered_settings = None;
+    presentation.rendered_url = None;
+    drop(presentation);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn show_preferences(app: &AppHandle) {
-    show_window(app, true);
+    request_window(app, true);
     let _ = app.emit("browsefork-open-preferences", ());
+}
+
+#[cfg(target_os = "macos")]
+fn defer_preferences(app: &AppHandle) {
+    let revision = app
+        .state::<AppState>()
+        .presentation
+        .lock()
+        .unwrap()
+        .revision;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(OPEN_EVENT_GRACE_PERIOD);
+        let callback_app = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let state = callback_app.state::<AppState>();
+            let presentation = state.presentation.lock().unwrap();
+            let should_open =
+                presentation.revision == revision && state.pending.lock().unwrap().is_empty();
+            drop(presentation);
+            if should_open {
+                show_preferences(&callback_app);
+            }
+        });
+    });
 }
 
 fn queue_link(app: &AppHandle, raw: String, source_app_id: Option<&str>) {
@@ -228,11 +424,17 @@ fn queue_link(app: &AppHandle, raw: String, source_app_id: Option<&str>) {
     let mut pending = state.pending.lock().unwrap();
     pending.push_with_source(raw, source_app_id.map(str::to_owned));
     drop(pending);
-    show_window(app, false);
+    request_window(app, false);
     notify(app);
 }
 
 fn receive_url(app: &AppHandle, raw: &str, source_app_id: Option<&str>) {
+    {
+        let state = app.state::<AppState>();
+        let mut presentation = state.presentation.lock().unwrap();
+        presentation.revision = presentation.revision.wrapping_add(1);
+        presentation.received_url = true;
+    }
     #[cfg(target_os = "macos")]
     if matches!(
         raw,
@@ -320,9 +522,9 @@ fn choose_browser(
     };
 
     if more_pending {
-        show_window(&app, false);
-    } else if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
+        request_window(&app, false);
+    } else {
+        hide_window(&app);
     }
     notify(&app);
     Ok(ChooseResult {
@@ -345,31 +547,96 @@ fn skip_link(
     let more_pending = !pending.is_empty();
     drop(pending);
     if !more_pending {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.hide();
-        }
+        hide_window(&app);
     }
     notify(&app);
     Ok(snapshot(&state))
 }
 
 #[tauri::command]
+fn dismiss_window(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    expected_url: Option<String>,
+    expected_revision: u64,
+) -> Result<Snapshot, String> {
+    save_preferences_window_size(&app);
+    let mut presentation = state.presentation.lock().unwrap();
+    if presentation.revision != expected_revision {
+        drop(presentation);
+        return Ok(snapshot(&state));
+    }
+    let skipped_link = if let Some(expected_url) = expected_url {
+        let mut pending = state.pending.lock().unwrap();
+        if pending.front() != Some(expected_url.as_str()) {
+            return Err("A newer link arrived. Review the link now shown.".into());
+        }
+        pending.pop_front();
+        true
+    } else {
+        false
+    };
+    presentation.revision = presentation.revision.wrapping_add(1);
+    presentation.requested_settings = None;
+    presentation.rendered_settings = None;
+    presentation.rendered_url = None;
+    drop(presentation);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    if skipped_link {
+        notify(&app);
+    }
+    Ok(snapshot(&state))
+}
+
+#[tauri::command]
 fn set_picker_layout(
     app: AppHandle,
+    presentation_revision: u64,
     settings: bool,
+    displayed_url: Option<String>,
     content_height: Option<f64>,
     content_width: Option<f64>,
 ) {
-    set_window_layout(&app, settings, content_height, content_width);
-    #[cfg(target_os = "macos")]
     if !settings {
-        if let Some(window) = app.get_webview_window("main") {
-            if window.is_visible().unwrap_or(false) {
-                let webview: &tauri::Webview = window.as_ref();
-                if let Err(error) = webview.set_focus() {
-                    eprintln!("BrowseFork: could not focus chooser content: {error}");
-                }
-            }
+        save_preferences_window_size(&app);
+    }
+    let state = app.state::<AppState>();
+    let mut presentation = state.presentation.lock().unwrap();
+    if presentation.revision != presentation_revision {
+        return;
+    }
+    let requested_settings = presentation.requested_settings;
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let visible = window.is_visible().unwrap_or(false);
+    if !visible && requested_settings != Some(settings) {
+        return;
+    }
+    let new_presentation = presentation.rendered_revision != presentation_revision;
+    if should_apply_window_layout(settings, visible, presentation.rendered_settings) {
+        set_window_layout(&app, settings, content_height, content_width);
+    }
+    presentation.rendered_settings = Some(settings);
+    presentation.rendered_revision = presentation_revision;
+    presentation.rendered_url = if settings { None } else { displayed_url };
+    if !visible {
+        present_window(&app);
+    } else if new_presentation {
+        #[cfg(target_os = "macos")]
+        if let Err(error) = platform::activate_window(&window) {
+            eprintln!("BrowseFork: could not reactivate chooser window: {error}");
+        }
+        let _ = window.set_focus();
+    }
+    drop(presentation);
+    #[cfg(target_os = "macos")]
+    if !settings && window.is_visible().unwrap_or(false) {
+        let webview: &tauri::Webview = window.as_ref();
+        if let Err(error) = webview.set_focus() {
+            eprintln!("BrowseFork: could not focus chooser content: {error}");
         }
     }
 }
@@ -414,12 +681,14 @@ fn main() {
                 pending: Mutex::new(PendingLinks::default()),
                 settings_path,
                 startup_error: Mutex::new(startup_error),
+                presentation: Mutex::new(Presentation::default()),
             });
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 let _ = MACOS_APP.set(app.handle().clone());
                 platform::install_url_handler(macos_receive_url);
+                platform::install_deactivation_handler(macos_app_deactivated);
             }
             for argument in std::env::args().skip(1) {
                 if !argument.starts_with('-')
@@ -434,6 +703,7 @@ fn main() {
             get_snapshot,
             choose_browser,
             skip_link,
+            dismiss_window,
             set_picker_layout,
             set_picker_style,
             replace_rules
@@ -450,9 +720,14 @@ fn main() {
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Ready
             if platform::was_default_launch()
-                && app.state::<AppState>().pending.lock().unwrap().is_empty() =>
+                && !app
+                    .state::<AppState>()
+                    .presentation
+                    .lock()
+                    .unwrap()
+                    .received_url =>
         {
-            show_preferences(app)
+            defer_preferences(app)
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Opened { urls } => {
@@ -461,11 +736,27 @@ fn main() {
             }
         }
         #[cfg(target_os = "macos")]
-        tauri::RunEvent::Reopen { .. } => show_preferences(app),
+        tauri::RunEvent::Reopen { .. } => {
+            if app.state::<AppState>().pending.lock().unwrap().is_empty() {
+                defer_preferences(app);
+            } else {
+                request_window(app, false);
+                notify(app);
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        tauri::RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Focused(false),
+            ..
+        } if label == "main" => {
+            notify_window_inactive(app);
+        }
         tauri::RunEvent::WindowEvent {
             event: WindowEvent::CloseRequested { api, .. },
             ..
         } => {
+            save_preferences_window_size(app);
             api.prevent_close();
             #[cfg(target_os = "macos")]
             app.exit(0);

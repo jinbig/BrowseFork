@@ -6,11 +6,12 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "../ui/main.js"), "utf8");
 
-function chooser() {
+function chooser({ framesEnabled = true } = {}) {
   const calls = [];
   const listeners = new Map();
   const elements = new Map();
   let snapshot = {
+    presentation_revision: 1,
     pending_url: "https://ya.ru/private/page",
     pending_source_app_id: "com.tinyspeck.slackmacgap",
     pending_count: 1,
@@ -138,7 +139,12 @@ function chooser() {
       snapshot = { ...snapshot, picker_style: args.style };
       return snapshot;
     }
-    if (command === "choose_browser" || command === "skip_link") {
+    if (command === "dismiss_window") {
+      if (args.expectedRevision !== snapshot.presentation_revision) return snapshot;
+      snapshot = { ...snapshot, presentation_revision: snapshot.presentation_revision + 1 };
+      if (!args.expectedUrl) return snapshot;
+    }
+    if (command === "choose_browser" || command === "skip_link" || command === "dismiss_window") {
       snapshot = { ...snapshot, pending_url: null, pending_count: 0, suggested_pattern: null };
       return command === "choose_browser" ? { snapshot, warning: null } : snapshot;
     }
@@ -151,7 +157,7 @@ function chooser() {
     window: { __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
     HTMLElement: FakeElement,
     URL,
-    requestAnimationFrame: (callback) => callback(),
+    requestAnimationFrame: (callback) => { if (framesEnabled) callback(); },
   };
   vm.runInNewContext(source, context, { filename: "ui/main.js" });
   return {
@@ -163,9 +169,13 @@ function chooser() {
       document.handlers.get("keydown")({ key, shiftKey, ...modifiers, preventDefault() { prevented = true; } });
       return prevented;
     },
-    setSnapshot(value) {
+    setSnapshot(value, event = "browsefork-state-changed") {
       snapshot = value;
-      listeners.get("browsefork-state-changed")();
+      listeners.get(event)();
+    },
+    inactive(payload = { expected_revision: snapshot.presentation_revision,
+      expected_url: document.getElementById("chooser-view").hidden ? null : snapshot.pending_url }) {
+      listeners.get("browsefork-window-inactive")({ payload });
     },
   };
 }
@@ -240,6 +250,56 @@ test("picker preference switches to the original list and persists the selection
   assert.equal(app.$("pending-host").textContent, "ya.ru");
 });
 
+test("a new link lays out the chooser with the new presentation revision", async () => {
+  const app = chooser();
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "set_picker_layout").args.presentationRevision, 1);
+  app.setSnapshot({
+    presentation_revision: 2,
+    pending_url: "https://new-link.invalid/",
+    pending_count: 1,
+    suggested_pattern: "new-link.invalid",
+    picker_style: "switcher",
+    browsers: [{ id: "safari", name: "Safari", icon_data_url: null }],
+    rules: [],
+    error: null,
+  });
+  await settle();
+  const layout = app.calls.filter((call) => call.command === "set_picker_layout").at(-1).args;
+  assert.equal(layout.presentationRevision, 2);
+  assert.equal(layout.settings, false);
+  assert.equal(layout.displayedUrl, "https://new-link.invalid/");
+  assert.equal(app.$("pending-host").textContent, "new-link.invalid");
+});
+
+test("hidden-window layout does not wait for animation frames", async () => {
+  const app = chooser({ framesEnabled: false });
+  await settle();
+  const layout = app.calls.find((call) => call.command === "set_picker_layout");
+  assert.equal(layout.args.presentationRevision, 1);
+  assert.equal(layout.args.settings, false);
+});
+
+test("opening Preferences refreshes its presentation revision before layout", async () => {
+  const app = chooser();
+  await settle();
+  app.setSnapshot({
+    presentation_revision: 2,
+    pending_url: null,
+    pending_count: 0,
+    suggested_pattern: null,
+    picker_style: "switcher",
+    browsers: [{ id: "safari", name: "Safari", icon_data_url: null }],
+    rules: [],
+    error: null,
+  }, "browsefork-open-preferences");
+  await settle();
+  const layout = app.calls.filter((call) => call.command === "set_picker_layout").at(-1).args;
+  assert.equal(layout.presentationRevision, 2);
+  assert.equal(layout.settings, true);
+  assert.equal(app.$("settings-view").hidden, false);
+});
+
 test("choosing a browser sends the current URL and requested rule", async () => {
   const app = chooser();
   await settle();
@@ -264,10 +324,63 @@ test("Escape skips the pending link without opening a browser", async () => {
   assert.equal(app.key("Escape"), true);
   await settle();
   assert.deepEqual(
-    JSON.parse(JSON.stringify(app.calls.find((call) => call.command === "skip_link").args)),
-    { expectedUrl: "https://ya.ru/private/page" }
+    JSON.parse(JSON.stringify(app.calls.find((call) => call.command === "dismiss_window").args)),
+    { expectedUrl: "https://ya.ru/private/page", expectedRevision: 1 }
   );
   assert.equal(app.calls.some((call) => call.command === "choose_browser"), false);
+});
+
+test("losing focus dismisses the chooser without opening its link", async () => {
+  const app = chooser();
+  await settle();
+  app.inactive();
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "dismiss_window").args.expectedUrl,
+    "https://ya.ru/private/page");
+  assert.equal(app.calls.some((call) => call.command === "choose_browser"), false);
+});
+
+test("losing focus in Preferences keeps the pending link", async () => {
+  const app = chooser();
+  await settle();
+  app.$("switcher-settings").click();
+  app.inactive();
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "dismiss_window").args.expectedUrl, null);
+  assert.equal(app.$("chooser-view").hidden, false);
+});
+
+test("late focus loss cannot dismiss a newly arrived link", async () => {
+  const app = chooser();
+  await settle();
+  const oldWindow = { expected_revision: 1, expected_url: "https://ya.ru/private/page" };
+  app.setSnapshot({
+    presentation_revision: 2,
+    pending_url: "https://new-link.invalid/",
+    pending_count: 2,
+    suggested_pattern: "new-link.invalid",
+    picker_style: "switcher",
+    browsers: [{ id: "safari", name: "Safari", icon_data_url: null }],
+    rules: [],
+    error: null,
+  });
+  await settle();
+  app.inactive(oldWindow);
+  await settle();
+  const dismissal = app.calls.find((call) => call.command === "dismiss_window");
+  assert.equal(dismissal.args.expectedUrl, "https://ya.ru/private/page");
+  assert.equal(dismissal.args.expectedRevision, 1);
+  assert.equal(app.$("pending-host").textContent, "new-link.invalid");
+  assert.equal(app.$("chooser-view").hidden, false);
+});
+
+test("focus loss during browser launch does not trigger dismissal", async () => {
+  const app = chooser();
+  await settle();
+  app.$("browser-list").querySelectorAll("button")[0].click();
+  app.inactive();
+  await settle();
+  assert.equal(app.calls.some((call) => call.command === "dismiss_window"), false);
 });
 
 test("app-only saved choice includes the detected source app", async () => {

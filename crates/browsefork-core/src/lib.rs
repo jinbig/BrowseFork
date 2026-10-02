@@ -45,6 +45,14 @@ pub struct Settings {
     pub rules: Vec<Rule>,
     #[serde(default)]
     pub picker_style: PickerStyle,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferences_window_size: Option<WindowSize>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Default for Settings {
@@ -53,6 +61,7 @@ impl Default for Settings {
             version: SETTINGS_VERSION,
             rules: Vec::new(),
             picker_style: PickerStyle::default(),
+            preferences_window_size: None,
         }
     }
 }
@@ -257,6 +266,7 @@ pub fn load_settings(path: &Path) -> Result<Settings, String> {
     let mut checked = Settings::default();
     checked.replace_rules(settings.rules)?;
     checked.picker_style = settings.picker_style;
+    checked.preferences_window_size = settings.preferences_window_size;
     Ok(checked)
 }
 
@@ -507,23 +517,33 @@ mod tests {
         let defaults = load_settings(&path).unwrap();
         assert!(defaults.rules.is_empty());
         assert_eq!(defaults.picker_style, PickerStyle::Switcher);
+        assert_eq!(defaults.preferences_window_size, None);
 
         let mut settings = Settings::default();
         settings
             .add_rule(MatchMode::Host, "example.com".into(), "browser".into())
             .unwrap();
         settings.picker_style = PickerStyle::List;
+        settings.preferences_window_size = Some(WindowSize {
+            width: 780,
+            height: 640,
+        });
         save_settings(&path, &settings).unwrap();
         let loaded = load_settings(&path).unwrap();
         assert_eq!(loaded.version, SETTINGS_VERSION);
         assert_eq!(loaded.rules, settings.rules);
         assert_eq!(loaded.picker_style, PickerStyle::List);
+        assert_eq!(
+            loaded.preferences_window_size,
+            settings.preferences_window_size
+        );
 
         std::fs::write(&path, r#"{"version":1,"rules":[]}"#).unwrap();
         assert_eq!(
             load_settings(&path).unwrap().picker_style,
             PickerStyle::Switcher
         );
+        assert_eq!(load_settings(&path).unwrap().preferences_window_size, None);
 
         std::fs::write(&path, r#"{"version":999,"rules":[]}"#).unwrap();
         assert!(load_settings(&path)

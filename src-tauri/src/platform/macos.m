@@ -11,6 +11,7 @@ static const CGFloat BrowseForkSwitcherCornerRadius = 24.0;
 
 typedef void (*BrowseForkURLCallback)(const char *, const char *);
 static BrowseForkURLCallback browseforkURLCallback;
+static void (*browseforkAppDeactivatedCallback)(void);
 static NSMutableArray<NSDictionary *> *browseforkPendingURLs;
 static bool browseforkWasDefaultLaunch;
 
@@ -21,6 +22,10 @@ static bool browseforkWasDefaultLaunch;
 - (void)didFinishLaunching:(NSNotification *)notification {
     NSNumber *defaultLaunch = notification.userInfo[@"NSApplicationLaunchIsDefaultLaunchKey"];
     browseforkWasDefaultLaunch = [defaultLaunch boolValue];
+}
+- (void)didResignActive:(NSNotification *)notification {
+    (void)notification;
+    if (browseforkAppDeactivatedCallback) browseforkAppDeactivatedCallback();
 }
 @end
 
@@ -33,10 +38,23 @@ void browsefork_install_launch_observer(void) {
            selector:@selector(didFinishLaunching:)
                name:NSApplicationDidFinishLaunchingNotification
              object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:browseforkLaunchObserver
+           selector:@selector(didResignActive:)
+               name:NSApplicationDidResignActiveNotification
+             object:NSApp];
 }
 
 bool browsefork_was_default_launch(void) {
     return browseforkWasDefaultLaunch;
+}
+
+void browsefork_install_deactivation_handler(void (*callback)(void)) {
+    browseforkAppDeactivatedCallback = callback;
+}
+
+bool browsefork_is_app_active(void) {
+    return [NSApp isActive];
 }
 
 void browsefork_style_picker_window(void *native_window, bool switcher) {

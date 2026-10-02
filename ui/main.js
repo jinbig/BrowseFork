@@ -8,6 +8,7 @@ let editingId = null;
 let busy = false;
 let displayedUrl = null;
 let selectedBrowserId = null;
+let refreshToken = 0;
 
 const pickerStyle = () => snapshot?.picker_style || "switcher";
 const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
@@ -40,10 +41,14 @@ function node(tag, className, text) {
 }
 
 async function refresh() {
+  const token = ++refreshToken;
   try {
-    snapshot = await invoke("get_snapshot");
+    const updated = await invoke("get_snapshot");
+    if (token !== refreshToken) return;
+    snapshot = updated;
     render();
   } catch (error) {
+    if (token !== refreshToken) return;
     message(String(error));
   }
 }
@@ -265,15 +270,15 @@ function render() {
 }
 
 function updateLayout() {
-  requestAnimationFrame(() => {
-    const settings = showSettings || !snapshot?.pending_url;
-    invoke("set_picker_layout", {
-      settings,
-      contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
-      contentWidth: settings ? null : pickerStyle() === "switcher"
-        ? switcherWidth(snapshot.browsers.length) : LIST_PICKER_WIDTH
-    }).catch((error) => message(String(error)));
-  });
+  const settings = showSettings || !snapshot?.pending_url;
+  invoke("set_picker_layout", {
+    presentationRevision: snapshot.presentation_revision,
+    settings,
+    displayedUrl: settings ? null : snapshot.pending_url,
+    contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
+    contentWidth: settings ? null : pickerStyle() === "switcher"
+      ? switcherWidth(snapshot.browsers.length) : LIST_PICKER_WIDTH
+  }).catch((error) => message(String(error)));
 }
 
 async function choose(browserId) {
@@ -320,6 +325,25 @@ async function skipCurrentLink() {
   }
 }
 
+async function dismissWindow(inactive = null) {
+  if (busy || !snapshot) return;
+  busy = true;
+  const expectedUrl = inactive ? inactive.expected_url :
+    $("chooser-view").hidden ? null : snapshot.pending_url;
+  const expectedRevision = inactive ? inactive.expected_revision : snapshot.presentation_revision;
+  try {
+    snapshot = await invoke("dismiss_window", { expectedUrl, expectedRevision });
+    showSettings = false;
+    message("");
+    render();
+  } catch (error) {
+    await refresh();
+    message(String(error));
+  } finally {
+    busy = false;
+  }
+}
+
 $("skip-link").addEventListener("click", skipCurrentLink);
 
 $("save-choice").addEventListener("change", (event) => {
@@ -348,12 +372,12 @@ $("picker-style").addEventListener("change", async (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (!snapshot?.pending_url || $("chooser-view").hidden) return;
   if (event.key === "Escape") {
     event.preventDefault();
-    skipCurrentLink();
+    dismissWindow();
     return;
   }
+  if (!snapshot?.pending_url || $("chooser-view").hidden) return;
   if (event.key === "Enter" && document.activeElement === $("save-choice")) {
     event.preventDefault();
     $("save-choice").click();
@@ -446,6 +470,7 @@ listen("browsefork-state-changed", () => {
 });
 listen("browsefork-open-preferences", () => {
   showSettings = true;
-  render();
+  refresh();
 });
+listen("browsefork-window-inactive", ({ payload }) => dismissWindow(payload));
 refresh();

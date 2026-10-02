@@ -7,6 +7,8 @@ extern "C" {
     fn browsefork_install_url_handler(callback: extern "C" fn(*const c_char, *const c_char));
     fn browsefork_install_launch_observer();
     fn browsefork_was_default_launch() -> bool;
+    fn browsefork_install_deactivation_handler(callback: extern "C" fn());
+    fn browsefork_is_app_active() -> bool;
     fn browsefork_list_browsers() -> *mut c_char;
     fn browsefork_list_source_apps() -> *mut c_char;
     fn browsefork_open_url(app_path: *const c_char, url: *const c_char) -> bool;
@@ -29,6 +31,14 @@ pub fn install_launch_observer() {
 
 pub fn was_default_launch() -> bool {
     unsafe { browsefork_was_default_launch() }
+}
+
+pub fn install_deactivation_handler(callback: extern "C" fn()) {
+    unsafe { browsefork_install_deactivation_handler(callback) };
+}
+
+pub fn is_app_active() -> bool {
+    unsafe { browsefork_is_app_active() }
 }
 
 pub fn style_picker_window(window: &WebviewWindow, switcher: bool) -> Result<(), String> {

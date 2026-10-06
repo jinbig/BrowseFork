@@ -1,4 +1,5 @@
 use crate::{matching_rule_for_source, parse_openable_url, Settings};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 #[derive(Debug, Eq, PartialEq)]
@@ -64,13 +65,14 @@ pub fn dispatch_link_for_source(
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct PendingLink {
     url: String,
     source_app_id: Option<String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
+#[serde(transparent)]
 pub struct PendingLinks(VecDeque<PendingLink>);
 
 impl PendingLinks {
@@ -118,6 +120,28 @@ impl PendingLinks {
 mod tests {
     use super::*;
     use crate::MatchMode;
+
+    #[test]
+    fn waiting_links_round_trip_without_losing_order_sources_or_encoded_urls() {
+        let mut pending = PendingLinks::default();
+        pending.push_with_source(
+            "https://example.com/auth?state=a%2Bb&code=one#fragment".into(),
+            Some("com.example.sender".into()),
+        );
+        pending.push("content://auth.provider/page.html".into());
+        let data = serde_json::to_vec(&pending).unwrap();
+        let mut restored: PendingLinks = serde_json::from_slice(&data).unwrap();
+        assert_eq!(
+            restored.pop_front().as_deref(),
+            Some("content://auth.provider/page.html")
+        );
+        assert_eq!(restored.front_source_app_id(), Some("com.example.sender"));
+        assert_eq!(
+            restored.pop_front().as_deref(),
+            Some("https://example.com/auth?state=a%2Bb&code=one#fragment")
+        );
+        assert!(restored.is_empty());
+    }
 
     #[test]
     fn matching_web_and_local_html_links_route_silently() {

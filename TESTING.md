@@ -12,11 +12,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 node --check ui/main.js
 npm run build
 npm run test:bundle
+npm run test:macos-discovery
 ```
 
-The Rust tests cover host boundaries, rule order and disabled rules, substring and regex matching, source app matching, rejection of an all-app/all-URL rule, legacy settings, local HTML URL handling, routing, fallback after a failed browser launch, pending-link order and sender retention, and picker-style migration. `npm test` exercises the actual chooser script with a mocked Tauri bridge, including Tab, arrows, browser shortcuts, app-only Save choice, rejection of an all-app/all-URL rule, Escape, focus-loss dismissal in the chooser and Preferences, protection during browser launch, picker-style changes, a new local HTML link, and layout while animation frames are paused in a hidden window. `test:bundle` checks that the built macOS app registers its URL and document types. The build alone does not exercise delivery of links from another app.
+The Rust tests cover host boundaries, rule order and disabled rules, substring and regex matching, source app matching, rejection of an all-app/all-URL rule, legacy settings, local HTML URL handling, routing, fallback after a failed browser launch, pending-link order and sender retention, and picker-style migration. `npm test` exercises the actual chooser script with a mocked Tauri bridge, including Tab, arrows, browser shortcuts, app-only Save choice, rejection of an all-app/all-URL rule, Escape, focus-loss dismissal in the chooser and Preferences, protection during browser launch, picker-style changes, a new local HTML link, and layout while animation frames are paused in a hidden window. `test:macos-discovery` compiles the production macOS adapter and checks updater copies, installed-path selection, enumeration order, distinct browser editions, symlink aliases, missing bundle IDs, user Applications, and stale entries with temporary bundles. It does not register or launch those bundles. `test:bundle` checks that the built macOS app registers its URL and document types. The build alone does not exercise delivery of links from another app.
 
 For a live macOS smoke test, install the app, close any existing BrowseFork window, grant your Terminal Accessibility access, and run `npm run test:macos-smoke`. It sends a unique `.invalid` HTTPS link to the installed app, checks that the chooser displays that exact host, presses Escape, and checks that the window hides. This test needs a logged-in desktop session and intentionally runs only when requested.
+
+## Android checks
+
+See [ANDROID.md](ANDROID.md) for the installed toolchain and emulator commands.
+`npm run test:android` runs the native Kotlin unit tests. `npm run test:android-smoke`
+exercises a real Android emulator with a separate capture-only browser; it refuses
+physical phones and resets only its two emulator test apps. The shared Rust and UI
+checks above also cover queue serialization and mobile presentation. A physical
+phone and its actual messaging/authentication apps still need acceptance testing.
 
 ## macOS acceptance checklist
 

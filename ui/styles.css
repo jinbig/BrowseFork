@@ -120,3 +120,34 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
   body:not(.chooser-mode) .shell { padding: 20px; }
   .picker-preference { grid-template-columns: 1fr; }
 }
+
+/* Mobile shares the picker and rule editor, but uses the device viewport and touch targets. */
+.mobile-android .shell { padding: 24px 20px; padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+.mobile-android .topbar { margin-bottom: 24px; }
+.mobile-android input[type="text"], .mobile-android select { font-size: 16px; min-height: 48px; }
+.mobile-android .form-grid, .mobile-android .rule-fields { grid-template-columns: 1fr; gap: 8px; }
+.mobile-android .form-grid label, .mobile-android .rule-fields label { font-size: 13px; margin-top: 8px; }
+.mobile-android .field-hint { grid-column: 1; line-height: 1.5; }
+.mobile-android .rule-row { flex-direction: column; align-items: stretch; }
+.mobile-android .rule-actions { justify-content: flex-end; }
+.mobile-android .rule-actions button { min-width: 44px; min-height: 44px; }
+.mobile-android .primary-button, .mobile-android .quiet-button { min-height: 44px; font-size: 14px; }
+.android-setup { margin-bottom: 20px; padding: 16px; border: 1px solid #dfe3eb; border-radius: 12px; background: white; font-size: 14px; line-height: 1.5; }
+.android-setup p { margin: 0 0 12px; }
+.mobile-android.chooser-mode { min-height: 100dvh; }
+.mobile-android.picker-switcher { overflow: auto; border-radius: 0; }
+.mobile-android.picker-switcher .shell { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; }
+.mobile-android.picker-switcher #browser-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); overflow: visible; gap: 12px; padding: 8px 0; margin-bottom: 12px; }
+.mobile-android.picker-switcher .browser-button { min-height: 108px; padding: 12px 4px; }
+.mobile-android.picker-switcher #browser-list .browser-button:first-child,
+.mobile-android.picker-switcher #browser-list .browser-button:last-child { margin: 0; }
+.mobile-android.picker-switcher .browser-name { position: static; width: auto; height: auto; max-width: 100%; clip-path: none; font-size: 12px; margin-top: 8px; }
+.mobile-android.picker-switcher .browser-icon { width: 64px; height: 64px; }
+.mobile-android.picker-switcher .selected-browser { display: none; }
+.mobile-android.picker-switcher .pending-host { font-size: 16px; margin: 0 0 24px; }
+.mobile-android.picker-switcher .save-card { padding: 16px; }
+.mobile-android .checkbox-row { min-height: 32px; font-size: 16px; }
+.mobile-android .checkbox-row input { width: 22px; height: 22px; }
+.mobile-android .chooser-footer { flex-wrap: wrap; margin-top: 12px; }
+.mobile-android.picker-list .browser-list { max-height: none; }
+.mobile-android.picker-list .browser-button { min-height: 60px; font-size: 16px; }

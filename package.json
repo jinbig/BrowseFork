@@ -5,7 +5,13 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "android:init": "bash scripts/android.sh init --skip-targets-install",
+    "android:dev": "bash scripts/android.sh dev",
+    "android:build": "bash scripts/android.sh build --target aarch64 --apk --debug",
+    "test:android": "bash scripts/android.sh gradle :tauri-plugin-browsefork-android:testDebugUnitTest",
+    "test:android-smoke": "BROWSEFORK_ANDROID_SMOKE=1 node --test tests/android-smoke.cjs",
     "test": "node --test tests/ui.test.cjs",
+    "test:macos-discovery": "node --test tests/macos-browser-discovery.test.cjs",
     "test:bundle": "node --test tests/macos-bundle.test.cjs",
     "test:macos-smoke": "node --test tests/macos-smoke.cjs"
   },

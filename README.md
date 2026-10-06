@@ -1,11 +1,12 @@
 # BrowseFork
 
-BrowseFork receives links from macOS and opens each one in a browser you choose. Rules can send matching links to a browser automatically; unmatched links show a compact picker.
+BrowseFork receives links from macOS and Android and opens each one in a browser you choose. Rules can send matching links to a browser automatically; unmatched links show a compact picker.
 
-The routing engine and the HTML/CSS/JavaScript interface are shared. macOS integration is implemented in `src-tauri/src/platform/macos.m` and `macos.rs`. Windows and Linux adapters are reserved in `src-tauri/src/platform/mod.rs` and currently return an explicit “not implemented” error.
+The routing engine and the HTML/CSS/JavaScript interface are shared. Android uses a small native Kotlin bridge for intents and browser discovery. See [ANDROID.md](ANDROID.md) for the APK, installation, tool setup, and emulator tests. macOS integration is implemented in `src-tauri/src/platform/macos.m` and `macos.rs`. Windows and Linux adapters are reserved in `src-tauri/src/platform/mod.rs` and currently return an explicit “not implemented” error.
 
 ## Features
 
+- On macOS, browser copies registered during updates appear only once. The installed copy in Applications is preferred; distinct editions with different bundle IDs remain separate.
 - Ordered rules. The first enabled match wins.
 - A rule may match a source app, a URL pattern, or both. Leaving the app blank means any app; leaving the pattern blank means any supported URL. Both cannot be blank. Existing URL-only rules continue to work.
 - macOS identifies the source by the sender PID on the incoming Apple event and stores its bundle ID. When macOS does not provide a usable sender, app-specific rules do not match; URL-only rules still apply.
@@ -52,8 +53,10 @@ For development, `npm run dev` runs the shared UI and Rust backend. Run `cargo t
 | Path | Purpose |
 | --- | --- |
 | `crates/browsefork-core` | URL validation, rule matching, preferences storage |
-| `src-tauri/src/main.rs` | App state, link queue, Tauri commands and macOS open events |
+| `src-tauri/src/lib.rs` | Shared app state, link queue, Tauri commands and platform events |
 | `src-tauri/src/platform` | Platform-specific browser discovery and launching |
+| `crates/tauri-plugin-browsefork-android` | Native Android intent, browser, and lifecycle bridge |
+| `src-tauri/gen/android` | Checked-in Android host project |
 | `ui` | Shared picker and preferences UI |
 
 ## Distribution notes

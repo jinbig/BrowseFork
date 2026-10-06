@@ -11,6 +11,7 @@ let selectedBrowserId = null;
 let refreshToken = 0;
 
 const pickerStyle = () => snapshot?.picker_style || "switcher";
+const isAndroid = () => snapshot?.platform === "android";
 const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
 
 const LIST_PICKER_WIDTH = 440;
@@ -95,7 +96,7 @@ function renderBrowsers() {
       button.append(node("span", "browser-icon-fallback", browser.name.slice(0, 1)));
     }
     button.append(node("span", "browser-name", browser.name));
-    if (index < 9) button.append(node("span", "browser-shortcut", `${shortcutPrefix}${index + 1}`));
+    if (index < 9 && !isAndroid()) button.append(node("span", "browser-shortcut", `${shortcutPrefix}${index + 1}`));
     button.addEventListener("focus", () => selectBrowser(browser.id));
     button.addEventListener("mouseenter", () => selectBrowser(browser.id));
     button.addEventListener("click", () => choose(browser.id));
@@ -205,6 +206,16 @@ function resetRuleForm() {
 
 function render() {
   if (!snapshot) return;
+  document.body.classList.toggle("mobile-android", isAndroid());
+  const loading = snapshot.ready === false;
+  const mobileDismissed = isAndroid() && snapshot.presentation_requested === null;
+  $("loading").hidden = !loading;
+  if (loading || mobileDismissed) {
+    $("topbar").hidden = true;
+    $("chooser-view").hidden = true;
+    $("settings-view").hidden = true;
+    return;
+  }
   const hasPending = Boolean(snapshot.pending_url);
   const settingsVisible = showSettings || !hasPending;
   const switcherVisible = !settingsVisible && pickerStyle() === "switcher";
@@ -219,6 +230,16 @@ function render() {
   $("picker-style").value = pickerStyle();
   $("settings-toggle").textContent = settingsVisible && hasPending ? "Back to link" : "Preferences";
   $("settings-toggle").hidden = !hasPending;
+  $("android-setup").hidden = !isAndroid();
+  $("keyboard-hint").hidden = isAndroid();
+  $("rule-source-app").placeholder = isAndroid() ? "Any app, or an Android package ID" : "Any app, or a bundle ID";
+  if (isAndroid()) {
+    $("default-browser-status").textContent = snapshot.is_default_browser
+      ? "BrowseFork is your default browser."
+      : "Set BrowseFork as your default browser to choose where links open.";
+    $("make-default-browser").hidden = snapshot.is_default_browser === true;
+    $("setup-note").textContent = "Apps may use their own browser or open verified app links directly. Source app rules work when the sender provides its app ID; otherwise URL rules apply.";
+  }
   $("keyboard-hint").textContent = pickerStyle() === "switcher"
     ? "Tab / ← → · Enter · Esc" : "Tab to move · Enter to open · Esc to skip";
   if (snapshot.error) message(snapshot.error);
@@ -275,8 +296,8 @@ function updateLayout() {
     presentationRevision: snapshot.presentation_revision,
     settings,
     displayedUrl: settings ? null : snapshot.pending_url,
-    contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
-    contentWidth: settings ? null : pickerStyle() === "switcher"
+    contentHeight: settings || isAndroid() ? null : Math.ceil($("shell").scrollHeight),
+    contentWidth: settings || isAndroid() ? null : pickerStyle() === "switcher"
       ? switcherWidth(snapshot.browsers.length) : LIST_PICKER_WIDTH
   }).catch((error) => message(String(error)));
 }
@@ -345,6 +366,15 @@ async function dismissWindow(inactive = null) {
 }
 
 $("skip-link").addEventListener("click", skipCurrentLink);
+
+$("make-default-browser").addEventListener("click", async () => {
+  try {
+    await invoke("request_default_browser");
+    message("");
+  } catch (error) {
+    message(String(error));
+  }
+});
 
 $("save-choice").addEventListener("change", (event) => {
   $("save-rule-fields").hidden = !event.target.checked;
@@ -473,4 +503,5 @@ listen("browsefork-open-preferences", () => {
   refresh();
 });
 listen("browsefork-window-inactive", ({ payload }) => dismissWindow(payload));
+listen("browsefork-platform-changed", refresh);
 refresh();

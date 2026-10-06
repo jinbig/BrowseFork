@@ -116,7 +116,7 @@ pub fn validate_rule(rule: &Rule) -> Result<(), String> {
         return Err("Choose a source app or enter a URL pattern".into());
     }
     if source_app_id.len() > 512 || source_app_id.chars().any(char::is_whitespace) {
-        return Err("Enter a valid source app bundle ID".into());
+        return Err("Enter a valid source app ID".into());
     }
     if pattern.len() > 2_048 {
         return Err("Match pattern is too long".into());

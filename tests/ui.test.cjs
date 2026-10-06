@@ -6,11 +6,15 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "../ui/main.js"), "utf8");
 
-function chooser({ framesEnabled = true } = {}) {
+function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}) {
   const calls = [];
   const listeners = new Map();
   const elements = new Map();
   let snapshot = {
+    platform,
+    ready,
+    presentation_requested: false,
+    is_default_browser: false,
     presentation_revision: 1,
     pending_url: "https://ya.ru/private/page",
     pending_source_app_id: "com.tinyspeck.slackmacgap",
@@ -181,6 +185,44 @@ function chooser({ framesEnabled = true } = {}) {
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("Android waits for its native bootstrap before presenting any screen", async () => {
+  const app = chooser({ platform: "android", ready: false });
+  await settle();
+  assert.equal(app.$("loading").hidden, false);
+  assert.equal(app.$("chooser-view").hidden, true);
+  assert.equal(app.$("settings-view").hidden, true);
+  assert.equal(app.calls.some((call) => call.command === "set_picker_layout"), false);
+});
+
+test("Android uses the native viewport, hides keyboard hints, and keeps save choice", async () => {
+  const app = chooser({ platform: "android" });
+  await settle();
+  assert.equal(app.document.body.classList.contains("mobile-android"), true);
+  assert.equal(app.$("keyboard-hint").hidden, true);
+  assert.equal(app.$("save-card").hidden, false);
+  const layout = app.calls.find((call) => call.command === "set_picker_layout");
+  assert.equal(layout.args.contentWidth, null);
+  assert.equal(layout.args.contentHeight, null);
+  const buttons = app.$("browser-list").querySelectorAll("button");
+  assert.equal(buttons[0].children.some((child) => child.textContent === "Ctrl+1" || child.textContent === "⌘1"), false);
+  app.$("save-choice").click();
+  app.$("save-pattern").value = "ya.ru";
+  buttons[0].click();
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "choose_browser").args.saveRule.pattern, "ya.ru");
+});
+
+test("Android Preferences requests the browser role through the native command", async () => {
+  const app = chooser({ platform: "android" });
+  await settle();
+  app.$("switcher-settings").click();
+  assert.equal(app.$("android-setup").hidden, false);
+  assert.match(app.$("rule-source-app").placeholder, /package ID/);
+  app.$("make-default-browser").click();
+  await settle();
+  assert.equal(app.calls.filter((call) => call.command === "request_default_browser").length, 1);
+});
 
 test("Tab focuses one browser at a time and reaches the expanded save controls", async () => {
   const app = chooser();

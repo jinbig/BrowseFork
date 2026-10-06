@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.browsefork.app",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BrowseFork",
+        "visible": true,
+        "decorations": false,
+        "resizable": false
+      }
+    ]
+  }
+}

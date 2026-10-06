@@ -1,0 +1,6 @@
+include ':app'
+// A separate capture-only browser used by the emulator smoke tests; never packaged in BrowseFork.
+include ':test-browser'
+project(':test-browser').projectDir = new File(rootDir, '../../../tests/android-browser')
+
+apply from: 'tauri.settings.gradle'

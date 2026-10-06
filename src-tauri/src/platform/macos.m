@@ -180,6 +180,51 @@ static NSString *browsefork_icon_data_url(NSWorkspace *workspace, NSString *path
     return png ? [@"data:image/png;base64," stringByAppendingString:[png base64EncodedStringWithOptions:0]] : nil;
 }
 
+// Updates can register a second copy of the same app in an updater cache.
+// Deduplicate by bundle ID, keeping a stable installed path for saved rules.
+static NSArray<NSURL *> *browsefork_unique_browser_urls(
+    NSArray<NSURL *> *appURLs, NSArray<NSString *> *applicationDirectories, NSURL *ownURL) {
+    NSString *ownPath = ownURL.URLByResolvingSymlinksInPath.URLByStandardizingPath.path;
+    NSMutableArray<NSURL *> *candidates = [NSMutableArray array];
+    for (NSURL *appURL in appURLs) {
+        NSURL *canonicalURL = appURL.URLByResolvingSymlinksInPath.URLByStandardizingPath;
+        if (!canonicalURL.path || [canonicalURL.path isEqualToString:ownPath]) continue;
+        NSBundle *bundle = [NSBundle bundleWithURL:canonicalURL];
+        if (bundle && browsefork_is_browser(bundle)) [candidates addObject:canonicalURL];
+    }
+    BOOL (^isInstalled)(NSURL *) = ^BOOL(NSURL *url) {
+        for (NSString *directory in applicationDirectories) {
+            NSString *root = [NSURL fileURLWithPath:directory].URLByResolvingSymlinksInPath
+                .URLByStandardizingPath.path;
+            if ([url.path hasPrefix:[root stringByAppendingString:@"/"]]) return YES;
+        }
+        return NO;
+    };
+    [candidates sortUsingComparator:^NSComparisonResult(NSURL *left, NSURL *right) {
+        BOOL leftInstalled = isInstalled(left);
+        BOOL rightInstalled = isInstalled(right);
+        if (leftInstalled != rightInstalled) return leftInstalled ? NSOrderedAscending : NSOrderedDescending;
+        // Prefer the app directly in Applications over a nested backup, then use a
+        // deterministic tie-breaker rather than Launch Services' enumeration order.
+        NSUInteger leftDepth = left.path.pathComponents.count;
+        NSUInteger rightDepth = right.path.pathComponents.count;
+        if (leftDepth != rightDepth) return leftDepth < rightDepth ? NSOrderedAscending : NSOrderedDescending;
+        return [left.path compare:right.path options:NSLiteralSearch];
+    }];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    NSMutableArray<NSURL *> *unique = [NSMutableArray array];
+    for (NSURL *url in candidates) {
+        NSString *bundleID = [NSBundle bundleWithURL:url].bundleIdentifier;
+        // A bundle without an identifier must not hide an unrelated application.
+        NSString *identity = bundleID.length ? [@"bundle:" stringByAppendingString:bundleID]
+            : [@"path:" stringByAppendingString:url.path];
+        if ([seen containsObject:identity]) continue;
+        [seen addObject:identity];
+        [unique addObject:url];
+    }
+    return unique;
+}
+
 char *browsefork_list_browsers(void) {
     @autoreleasepool {
         NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
@@ -187,21 +232,15 @@ char *browsefork_list_browsers(void) {
         NSArray<NSURL *> *appURLs = [workspace URLsForApplicationsToOpenURL:sampleURL];
         NSURL *ownURL = [[NSBundle mainBundle] bundleURL];
         NSMutableArray<NSDictionary *> *browsers = [NSMutableArray array];
-        NSMutableSet<NSString *> *seen = [NSMutableSet set];
-
-        for (NSURL *appURL in appURLs) {
-            NSString *path = [[appURL URLByStandardizingPath] path];
-            if (!path || [path isEqualToString:[[ownURL URLByStandardizingPath] path]] ||
-                [seen containsObject:path]) {
-                continue;
-            }
+        NSArray<NSString *> *applicationDirectories = NSSearchPathForDirectoriesInDomains(
+            NSApplicationDirectory, NSAllDomainsMask, YES);
+        for (NSURL *appURL in browsefork_unique_browser_urls(appURLs, applicationDirectories, ownURL)) {
+            NSString *path = appURL.path;
             NSBundle *bundle = [NSBundle bundleWithURL:appURL];
-            if (!bundle || !browsefork_is_browser(bundle)) continue;
             NSString *name = [bundle objectForInfoDictionaryKey:@"CFBundleDisplayName"];
             if (!name) name = [bundle objectForInfoDictionaryKey:@"CFBundleName"];
             if (!name) name = [[path lastPathComponent] stringByDeletingPathExtension];
             if (!name) continue;
-            [seen addObject:path];
             NSString *icon = browsefork_icon_data_url(workspace, path);
             [browsers addObject:@{
                 @"id": path,

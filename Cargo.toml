@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/browsefork-core", "src-tauri"]
+members = ["crates/browsefork-core", "crates/tauri-plugin-browsefork-android", "src-tauri"]
 resolver = "2"
 
 [workspace.package]

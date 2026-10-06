@@ -15,6 +15,7 @@
       </header>
 
       <div id="message" class="message" role="status" hidden></div>
+      <p id="loading" class="empty-state" hidden>Loading browsers…</p>
 
       <section id="chooser-view" hidden>
         <h1>Open with</h1>
@@ -55,6 +56,10 @@
         <p class="eyebrow">PREFERENCES</p>
         <h1>Link rules</h1>
         <p class="intro">Matching links open automatically. Other links show the browser picker.</p>
+        <div id="android-setup" class="android-setup" hidden>
+          <p id="default-browser-status">Set BrowseFork as your default browser to choose where links open.</p>
+          <button id="make-default-browser" class="primary-button" type="button">Set as default browser</button>
+        </div>
         <div class="picker-preference">
           <label for="picker-style">Browser picker</label>
           <select id="picker-style">
@@ -86,7 +91,7 @@
             <button class="primary-button" type="submit">Save rule</button>
           </div>
         </form>
-        <p class="setup-note">To catch links from other apps on macOS, install BrowseFork.app and select BrowseFork as the default web browser in System Settings.</p>
+        <p id="setup-note" class="setup-note">To catch links from other apps on macOS, install BrowseFork.app and select BrowseFork as the default web browser in System Settings.</p>
       </section>
     </main>
   </body>

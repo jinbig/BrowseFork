@@ -5,11 +5,18 @@ edition.workspace = true
 publish = false
 build = "build.rs"
 
+[lib]
+name = "browsefork_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [dependencies]
 browsefork-core = { path = "../crates/browsefork-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-browsefork-android = { path = "../crates/tauri-plugin-browsefork-android" }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

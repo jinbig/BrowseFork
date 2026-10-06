@@ -377,7 +377,7 @@ fn should_apply_window_layout(
     !settings || !visible || rendered_settings != Some(true)
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "macos", target_os = "android")))]
 fn present_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -391,6 +391,18 @@ fn present_window(app: &AppHandle) {
             eprintln!("BrowseFork: could not focus chooser content: {error}");
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn macos_presentation_is_current(revision: u64) -> bool {
+    let Some(app) = MACOS_APP.get() else {
+        return false;
+    };
+    let state = app.state::<AppState>();
+    let presentation = state.presentation.lock().unwrap();
+    presentation.revision == revision
+        && presentation.rendered_revision == revision
+        && presentation.requested_settings.is_some()
 }
 
 fn request_window(app: &AppHandle, settings: bool) {
@@ -767,22 +779,22 @@ fn set_picker_layout(
         presentation.rendered_settings = Some(settings);
         presentation.rendered_revision = presentation_revision;
         presentation.rendered_url = if settings { None } else { displayed_url };
+        drop(presentation);
+        #[cfg(target_os = "macos")]
+        if !visible || new_presentation {
+            if let Err(error) = platform::present_rendered_window(
+                &window,
+                presentation_revision,
+                macos_presentation_is_current,
+            ) {
+                eprintln!("BrowseFork: could not prepare window presentation: {error}");
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
         if !visible {
             present_window(&app);
         } else if new_presentation {
-            #[cfg(target_os = "macos")]
-            if let Err(error) = platform::activate_window(&window) {
-                eprintln!("BrowseFork: could not reactivate chooser window: {error}");
-            }
             let _ = window.set_focus();
-        }
-        drop(presentation);
-        #[cfg(target_os = "macos")]
-        if !settings && window.is_visible().unwrap_or(false) {
-            let webview: &tauri::Webview = window.as_ref();
-            if let Err(error) = webview.set_focus() {
-                eprintln!("BrowseFork: could not focus chooser content: {error}");
-            }
         }
     }
 }

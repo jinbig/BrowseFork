@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "../ui/main.js"), "utf8");
 
-function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}) {
+function chooser({ framesEnabled = true, platform = "macos", ready = true, fontsReady = Promise.resolve() } = {}) {
   const calls = [];
   const listeners = new Map();
   const elements = new Map();
@@ -74,6 +74,7 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}
 
     querySelectorAll(selector) {
       if (selector === "button") return this.children.filter((child) => child.tagName === "BUTTON");
+      if (selector === "img") return this.children.flatMap((child) => child.children).filter((child) => child.tagName === "IMG");
       throw new Error(`Unexpected selector: ${selector}`);
     }
 
@@ -104,11 +105,14 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}
       if (document.activeElement === this) document.activeElement = null;
     }
 
+    getBoundingClientRect() { return { width: 320, height: 200 }; }
+    decode() { return Promise.resolve(); }
     setAttribute() {}
     reset() {}
   }
 
   const document = {
+    fonts: { ready: fontsReady },
     activeElement: null,
     body: new FakeElement("body"),
     getElementById(id) {
@@ -137,7 +141,9 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}
   $("rule-browser").tagName = "SELECT";
 
   const invoke = async (command, args) => {
-    calls.push({ command, args });
+    calls.push({ command, args,
+      selectionAtCall: command === "set_picker_layout" ? $("selected-browser").textContent : null,
+      focusAtCall: command === "set_picker_layout" ? document.activeElement?.title : null });
     if (command === "get_snapshot") return snapshot;
     if (command === "set_picker_style") {
       snapshot = { ...snapshot, picker_style: args.style };
@@ -149,7 +155,8 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}
       if (!args.expectedUrl) return snapshot;
     }
     if (command === "choose_browser" || command === "skip_link" || command === "dismiss_window") {
-      snapshot = { ...snapshot, pending_url: null, pending_count: 0, suggested_pattern: null };
+      snapshot = { ...snapshot, pending_url: null, pending_count: 0, suggested_pattern: null,
+        presentation_requested: null };
       return command === "choose_browser" ? { snapshot, warning: null } : snapshot;
     }
     if (command === "replace_rules") return { ...snapshot, rules: args.rules };
@@ -173,6 +180,8 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true } = {}
       document.handlers.get("keydown")({ key, shiftKey, ...modifiers, preventDefault() { prevented = true; } });
       return prevented;
     },
+    getSnapshot() { return snapshot; },
+    readyToPresent(revision) { return context.window.browseforkReadyToPresent(revision); },
     setSnapshot(value, event = "browsefork-state-changed") {
       snapshot = value;
       listeners.get(event)();
@@ -265,6 +274,122 @@ test("switcher arrows change the highlighted browser and Enter opens it", async 
   const chosen = app.calls.find((call) => call.command === "choose_browser");
   assert.equal(chosen.args.browserId, "safari");
   assert.equal(chosen.args.saveRule, null);
+});
+
+test("a browser chosen by click is restored before presenting repeated and different links", async () => {
+  const app = chooser({ framesEnabled: false });
+  await settle();
+  app.$("browser-list").querySelectorAll("button")[1].click();
+  await settle();
+  for (const url of ["https://ya.ru/private/page", "https://other.invalid/path"]) {
+    app.setSnapshot({ ...app.getSnapshot(), presentation_revision: app.getSnapshot().presentation_revision + 1,
+      pending_url: url, pending_count: 1, suggested_pattern: new URL(url).host });
+    await settle();
+    const presentation = app.calls.filter((call) => call.command === "set_picker_layout").at(-1);
+    assert.equal(presentation.selectionAtCall, "Safari");
+    assert.equal(presentation.focusAtCall, "Safari");
+    assert.equal(app.$("browser-list").querySelectorAll("button").filter((button) => button.classList.contains("is-selected")).length, 1);
+    app.key("Escape");
+    await settle();
+  }
+});
+
+test("restored selection ignores stationary hover and focus survives a state refresh", async () => {
+  const app = chooser();
+  await settle();
+  app.key("ArrowRight");
+  app.key("Escape");
+  await settle();
+  app.setSnapshot({ ...app.getSnapshot(), presentation_revision: app.getSnapshot().presentation_revision + 1,
+    pending_url: "https://ya.ru/private/page", pending_count: 1, suggested_pattern: "ya.ru" });
+  await settle();
+  let buttons = app.$("browser-list").querySelectorAll("button");
+  // Reproduce WebKit's delayed focus restoration after showing the native window.
+  buttons[0].focus();
+  assert.equal(app.document.activeElement, buttons[1]);
+  assert.equal(app.$("selected-browser").textContent, "Safari");
+  buttons[0].dispatch("mouseenter");
+  buttons[0].dispatch("mousemove", { movementX: 0, movementY: 0, screenX: 100, screenY: 100 });
+  assert.equal(app.$("selected-browser").textContent, "Safari");
+  app.setSnapshot({ ...app.getSnapshot() }, "browsefork-platform-changed");
+  await settle();
+  buttons = app.$("browser-list").querySelectorAll("button");
+  assert.equal(app.document.activeElement, buttons[1]);
+  assert.equal(app.$("selected-browser").textContent, "Safari");
+  app.key("Tab");
+  assert.equal(app.document.activeElement, buttons[1]);
+  app.key("Tab");
+  assert.equal(app.document.activeElement, app.$("save-choice"));
+  buttons[0].dispatch("mousemove", { movementX: 1, movementY: 0, screenX: 101, screenY: 100 });
+  assert.equal(app.$("selected-browser").textContent, "Brave");
+});
+
+test("Android restores a browser chosen by shortcut when the same link reopens", async () => {
+  const app = chooser({ platform: "android" });
+  await settle();
+  app.key("2", false, { ctrlKey: true });
+  await settle();
+  app.setSnapshot({ ...app.getSnapshot(), presentation_requested: false,
+    presentation_revision: app.getSnapshot().presentation_revision + 1,
+    pending_url: "https://ya.ru/private/page", pending_count: 1, suggested_pattern: "ya.ru" });
+  await settle();
+  const presentation = app.calls.filter((call) => call.command === "set_picker_layout").at(-1);
+  assert.equal(presentation.selectionAtCall, "Safari");
+  assert.equal(presentation.focusAtCall, "Safari");
+});
+
+test("reopening and refreshing keeps browser tiles instead of recreating their images", async () => {
+  const app = chooser();
+  await settle();
+  const originalButtons = app.$("browser-list").querySelectorAll("button");
+  app.key("ArrowRight");
+  app.key("Escape");
+  await settle();
+  app.setSnapshot({ ...app.getSnapshot(), presentation_revision: app.getSnapshot().presentation_revision + 1,
+    pending_url: "https://other.invalid/", pending_count: 1, suggested_pattern: "other.invalid" });
+  await settle();
+  const reopenedButtons = app.$("browser-list").querySelectorAll("button");
+  assert.equal(reopenedButtons[0], originalButtons[0]);
+  assert.equal(reopenedButtons[1], originalButtons[1]);
+  assert.equal(app.$("selected-browser").textContent, "Safari");
+  app.setSnapshot({ ...app.getSnapshot() }, "browsefork-platform-changed");
+  await settle();
+  assert.equal(app.$("browser-list").querySelectorAll("button")[1], originalButtons[1]);
+});
+
+test("native presentation waits for assets and cancels a frame when a newer link arrives", async () => {
+  let releaseFonts;
+  const fontsReady = new Promise((resolve) => { releaseFonts = resolve; });
+  const app = chooser({ fontsReady });
+  await settle();
+  let finished = false;
+  const preparation = app.readyToPresent(1).then((value) => { finished = true; return value; });
+  await settle();
+  assert.equal(finished, false);
+  app.setSnapshot({ ...app.getSnapshot(), presentation_revision: 2,
+    pending_url: "https://newer.invalid/", suggested_pattern: "newer.invalid" });
+  await settle();
+  releaseFonts();
+  assert.equal(await preparation, false);
+  assert.equal(await app.readyToPresent(2), true);
+});
+
+test("a removed remembered browser falls back to an available browser before showing", async () => {
+  const app = chooser();
+  await settle();
+  app.key("ArrowRight");
+  app.key("Escape");
+  await settle();
+  app.setSnapshot({ ...app.getSnapshot(), presentation_revision: app.getSnapshot().presentation_revision + 1,
+    pending_url: "https://other.invalid/", pending_count: 1, suggested_pattern: "other.invalid",
+    browsers: [{ id: "brave", name: "Brave", icon_data_url: null }] });
+  await settle();
+  const presentation = app.calls.filter((call) => call.command === "set_picker_layout").at(-1);
+  assert.equal(presentation.selectionAtCall, "Brave");
+  assert.equal(presentation.focusAtCall, "Brave");
+  app.key("Enter");
+  await settle();
+  assert.equal(app.calls.find((call) => call.command === "choose_browser").args.browserId, "brave");
 });
 
 test("switcher command-number shortcut opens the matching browser", async () => {

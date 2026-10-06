@@ -8,6 +8,7 @@ fn main() {
             .compile("browsefork_macos");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=Foundation");
+        println!("cargo:rustc-link-lib=framework=WebKit");
     }
     tauri_build::build();
 }

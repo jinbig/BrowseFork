@@ -15,6 +15,7 @@ The routing engine and the HTML/CSS/JavaScript interface are shared. Android use
 - **Contains:** case-insensitive text anywhere in the full URL.
 - **Regex:** Rust `regex` syntax against the full URL. Add `(?i)` for case-insensitive matching.
 - The picker has a **Save choice** checkbox. It starts with the current host or local HTML folder and lets you choose the detected source app, edit the pattern, and select a matching type before choosing a browser.
+- The chooser remembers the last highlighted browser while BrowseFork is running and restores its highlight and keyboard focus before showing the next link. On macOS, the window is revealed only after WebKit finishes preparing and rendering that state; unchanged browser tiles are reused.
 - The default picker is a compact horizontal icon switcher without a title bar. Tab or arrow keys move between browsers, Enter opens the highlighted browser, and Command+1–9 on macOS (Control+1–9 elsewhere) opens a numbered browser. Escape skips the link. The gear button opens Preferences, where you can switch back to the original browser list; the choice is saved.
 - Local HTML files, including temporary sign-in pages, can use the picker or a saved folder rule.
 - Other links or documents delivered to BrowseFork show the browser picker. The Save choice controls are hidden when the item cannot be matched by a rule.
@@ -42,7 +43,7 @@ sudo ditto target/release/bundle/macos/BrowseFork.app /Applications/BrowseFork.a
 open -a /Applications/BrowseFork.app 'https://example.com/test'
 ```
 
-Quit BrowseFork before replacing an earlier install. The bundle declares both `http` and `https` URL schemes and macOS web-browser metadata. The `open -a` command tests delivery without changing your default browser. To handle links from other apps, select BrowseFork in System Settings → Desktop & Dock → Default web browser. Then test the system default with `open 'https://example.com/test'`.
+Quit BrowseFork before replacing an earlier install. Closing the chooser with Escape only hides its window; it does not quit the process. Restart BrowseFork after installing an update so the running process loads the new executable. The bundle declares both `http` and `https` URL schemes and macOS web-browser metadata. The `open -a` command tests delivery without changing your default browser. To handle links from other apps, select BrowseFork in System Settings → Desktop & Dock → Default web browser. Then test the system default with `open 'https://example.com/test'`.
 
 macOS delivers only schemes and document types registered to BrowseFork. BrowseFork registers `http`, `https`, and HTML documents; it does not take over schemes such as `mailto` from their existing handlers. If another item is sent directly to BrowseFork, it asks which browser to use instead of silently discarding it.
 

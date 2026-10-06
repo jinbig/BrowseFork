@@ -8,6 +8,10 @@ let editingId = null;
 let busy = false;
 let displayedUrl = null;
 let selectedBrowserId = null;
+let rememberedBrowserId = null;
+let renderedChooserRevision = null;
+let renderedBrowsers = [];
+let lastPointerPosition = null;
 let refreshToken = 0;
 
 const pickerStyle = () => snapshot?.picker_style || "switcher";
@@ -73,16 +77,24 @@ function renderSourceApps() {
   }
 }
 
-function renderBrowsers() {
+function renderBrowsers(focusSelection = false) {
   const list = $("browser-list");
-  list.replaceChildren();
+  const hadBrowserFocus = !$("chooser-view").hidden &&
+    [...list.querySelectorAll("button")].includes(document.activeElement);
+  const browsersChanged = renderedBrowsers.length !== snapshot.browsers.length ||
+    renderedBrowsers.some((browser, index) => {
+      const next = snapshot.browsers[index];
+      return browser.id !== next.id || browser.name !== next.name || browser.icon_data_url !== next.icon_data_url;
+    });
+  if (browsersChanged) list.replaceChildren();
   $("selected-browser").hidden = pickerStyle() !== "switcher";
   if (snapshot.browsers.length === 0) {
     $("selected-browser").textContent = "";
-    list.append(node("p", "empty-state", "No browsers were found. Install a browser and try again."));
+    list.replaceChildren(node("p", "empty-state", "No browsers were found. Install a browser and try again."));
+    renderedBrowsers = [];
     return;
   }
-  for (const [index, browser] of snapshot.browsers.entries()) {
+  if (browsersChanged) for (const [index, browser] of snapshot.browsers.entries()) {
     const button = node("button", "browser-button");
     button.type = "button";
     button.title = browser.name;
@@ -97,18 +109,49 @@ function renderBrowsers() {
     }
     button.append(node("span", "browser-name", browser.name));
     if (index < 9 && !isAndroid()) button.append(node("span", "browser-shortcut", `${shortcutPrefix}${index + 1}`));
-    button.addEventListener("focus", () => selectBrowser(browser.id));
-    button.addEventListener("mouseenter", () => selectBrowser(browser.id));
-    button.addEventListener("click", () => choose(browser.id));
+    // Native WebKit activation can focus the first button asynchronously.
+    // Selection follows explicit keyboard/mouse actions, not automatic focus.
+    button.addEventListener("focus", () => {
+      if (!selectedBrowserId || browser.id === selectedBrowserId) return;
+      const selectedIndex = snapshot.browsers.findIndex((item) => item.id === selectedBrowserId);
+      list.querySelectorAll("button")[selectedIndex]?.focus({ preventScroll: true });
+    });
+    // Showing a window under a stationary pointer can emit mouseenter later.
+    // Only an actual pointer movement should override the restored selection.
+    button.addEventListener("mousemove", (event) => {
+      const position = [event.screenX, event.screenY];
+      const moved = lastPointerPosition && (position[0] !== lastPointerPosition[0] || position[1] !== lastPointerPosition[1]);
+      lastPointerPosition = position;
+      if (moved) selectBrowser(browser.id);
+    });
+    button.addEventListener("click", () => {
+      selectBrowser(browser.id);
+      choose(browser.id);
+    });
     list.append(button);
   }
-  selectBrowser(snapshot.browsers.some((browser) => browser.id === selectedBrowserId)
-    ? selectedBrowserId : snapshot.browsers[0].id);
+  renderedBrowsers = snapshot.browsers;
+  const preferredId = selectedBrowserId || rememberedBrowserId;
+  const selected = snapshot.browsers.find((browser) => browser.id === preferredId) || snapshot.browsers[0];
+  selectBrowser(selected.id, false);
+  if (focusSelection || hadBrowserFocus) {
+    // Establish DOM focus while the native window is hidden so WebKit does not
+    // restore a different browser after the chooser has already appeared.
+    const index = snapshot.browsers.findIndex((browser) => browser.id === selected.id);
+    list.querySelectorAll("button")[index].focus({ preventScroll: true });
+  }
 }
 
-function selectBrowser(id) {
+function focusBrowser(index) {
+  selectBrowser(snapshot.browsers[index].id);
+  $("browser-list").querySelectorAll("button")[index].focus({ preventScroll: true });
+}
+
+function selectBrowser(id, remember = true) {
   selectedBrowserId = id;
-  $("selected-browser").textContent = browserName(id);
+  if (remember) rememberedBrowserId = id;
+  const name = browserName(id);
+  if ($("selected-browser").textContent !== name) $("selected-browser").textContent = name;
   $("browser-list").querySelectorAll("button").forEach((button, index) => {
     button.classList.toggle("is-selected", snapshot.browsers[index].id === id);
   });
@@ -211,6 +254,12 @@ function render() {
   const mobileDismissed = isAndroid() && snapshot.presentation_requested === null;
   $("loading").hidden = !loading;
   if (loading || mobileDismissed) {
+    if (mobileDismissed) {
+      displayedUrl = null;
+      selectedBrowserId = null;
+      renderedChooserRevision = null;
+      document.body.classList.remove("keyboard-navigation");
+    }
     $("topbar").hidden = true;
     $("chooser-view").hidden = true;
     $("settings-view").hidden = true;
@@ -247,7 +296,7 @@ function render() {
   if (hasPending) {
     if (newLink) {
       displayedUrl = snapshot.pending_url;
-      selectedBrowserId = null;
+      selectedBrowserId = rememberedBrowserId;
       document.body.classList.remove("keyboard-navigation");
       $("save-choice").checked = false;
       $("save-rule-fields").hidden = true;
@@ -278,8 +327,15 @@ function render() {
     const olderCount = snapshot.pending_count - 1;
     $("queue-status").textContent = `${olderCount} older ${olderCount === 1 ? "link" : "links"} waiting`;
     $("queue-status").hidden = olderCount === 0;
-    renderBrowsers();
+    const newPresentation = !settingsVisible && renderedChooserRevision !== snapshot.presentation_revision;
+    if (newPresentation) {
+      document.body.classList.remove("keyboard-navigation");
+      lastPointerPosition = null;
+    }
+    renderBrowsers(newPresentation);
+    renderedChooserRevision = settingsVisible ? null : snapshot.presentation_revision;
   } else {
+    renderedChooserRevision = null;
     displayedUrl = null;
     selectedBrowserId = null;
     document.body.classList.remove("keyboard-navigation");
@@ -317,6 +373,7 @@ async function choose(browserId) {
   try {
     const result = await invoke("choose_browser", { browserId, expectedUrl, saveRule });
     snapshot = result.snapshot;
+    rememberedBrowserId = browserId;
     $("save-choice").checked = false;
     $("save-rule-fields").hidden = true;
     $("save-mode").value = "host";
@@ -429,7 +486,7 @@ document.addEventListener("keydown", (event) => {
     document.body.classList.add("keyboard-navigation");
     const current = snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId);
     const direction = event.key === "ArrowRight" ? 1 : -1;
-    browserButtons[(current + direction + browserButtons.length) % browserButtons.length].focus();
+    focusBrowser((current + direction + browserButtons.length) % browserButtons.length);
     return;
   }
   if (pickerStyle() === "switcher" && event.key === "Enter" && selectedBrowserId &&
@@ -449,11 +506,17 @@ document.addEventListener("keydown", (event) => {
   ];
   if (!stops.length) return;
   event.preventDefault();
+  const enteringNavigation = !document.body.classList.contains("keyboard-navigation");
   document.body.classList.add("keyboard-navigation");
   const index = stops.indexOf(document.activeElement);
-  const next = index < 0 ? (event.shiftKey ? stops.length - 1 : 0) :
+  // The first Tab makes the restored selection the keyboard starting point.
+  // Subsequent presses advance normally through browsers and rule controls.
+  const next = enteringNavigation && !event.shiftKey && browserButtons.includes(document.activeElement)
+    ? snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId) : index < 0 ? (event.shiftKey ? stops.length - 1 : 0) :
     (index + (event.shiftKey ? -1 : 1) + stops.length) % stops.length;
-  stops[next].focus();
+  const browserIndex = browserButtons.indexOf(stops[next]);
+  if (browserIndex >= 0) focusBrowser(browserIndex);
+  else stops[next].focus();
 });
 
 $("cancel-edit").addEventListener("click", resetRuleForm);
@@ -493,6 +556,22 @@ $("rule-form").addEventListener("submit", async (event) => {
     message(String(error));
   }
 });
+
+// Called by the native macOS presenter before it captures the completed frame.
+// No timer/rAF is used: hidden web views may throttle those callbacks.
+window.browseforkReadyToPresent = async (revision) => {
+  if (!snapshot || snapshot.presentation_revision !== revision) return false;
+  if (document.fonts) await document.fonts.ready;
+  const icons = [...$("browser-list").querySelectorAll("img")];
+  await Promise.all(icons.map((icon) => icon.decode().catch(() => {})));
+  if (snapshot.presentation_revision !== revision) return false;
+  if (!$("chooser-view").hidden && selectedBrowserId) {
+    const index = snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId);
+    $("browser-list").querySelectorAll("button")[index]?.focus({ preventScroll: true });
+  }
+  $("shell").getBoundingClientRect();
+  return true;
+};
 
 listen("browsefork-state-changed", () => {
   showSettings = false;

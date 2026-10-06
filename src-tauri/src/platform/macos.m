@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <Carbon/Carbon.h>
 #import <QuartzCore/QuartzCore.h>
+#import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -75,6 +76,43 @@ void browsefork_activate_window(void *native_window) {
     if (!window) return;
     [NSApp activateIgnoringOtherApps:YES];
     [window makeKeyAndOrderFront:nil];
+}
+
+// A hidden WKWebView can still hold the previous compositor frame. Activate it
+// invisibly, finish the DOM/images/fonts, and wait for a rendered snapshot before
+// exposing the window. This is a paint barrier, not a timed fade or delay.
+void browsefork_present_rendered_window(void *native_window, void *native_webview,
+                                        uint64_t revision, bool (*is_current)(uint64_t)) {
+    NSWindow *window = (__bridge NSWindow *)native_window;
+    WKWebView *webview = (__bridge WKWebView *)native_webview;
+    if (!window || !webview || !is_current(revision)) return;
+    BOOL alreadyVisible = window.visible && window.alphaValue > 0.0;
+    if (!alreadyVisible) window.alphaValue = 0.0;
+    window.animationBehavior = NSWindowAnimationBehaviorNone;
+    [NSApp activateIgnoringOtherApps:YES];
+    [window makeKeyAndOrderFront:nil];
+    [window makeFirstResponder:webview];
+    [webview callAsyncJavaScript:@"return await window.browseforkReadyToPresent(revision);"
+                       arguments:@{@"revision": @(revision)}
+                         inFrame:nil
+                  inContentWorld:WKContentWorld.pageWorld
+               completionHandler:^(id ready, NSError *error) {
+        if (!is_current(revision)) return;
+        if (error || ![ready isEqual:@YES]) {
+            if (error) NSLog(@"BrowseFork: could not prepare window: %@", error);
+            return;
+        }
+        WKSnapshotConfiguration *configuration = [WKSnapshotConfiguration new];
+        configuration.afterScreenUpdates = YES;
+        [webview takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *snapshotError) {
+            if (!is_current(revision) || !window.visible) return;
+            if (snapshotError || !image) {
+                NSLog(@"BrowseFork: could not render window: %@", snapshotError);
+                return;
+            }
+            window.alphaValue = 1.0;
+        }];
+    }];
 }
 
 static void browsefork_open_urls(id self, SEL selector, NSApplication *app,

@@ -14,7 +14,12 @@ extern "C" {
     fn browsefork_open_url(app_path: *const c_char, url: *const c_char) -> bool;
     fn browsefork_free_string(value: *mut c_char);
     fn browsefork_style_picker_window(window: *mut c_void, switcher: bool);
-    fn browsefork_activate_window(window: *mut c_void);
+    fn browsefork_present_rendered_window(
+        window: *mut c_void,
+        webview: *mut c_void,
+        revision: u64,
+        is_current: extern "C" fn(u64) -> bool,
+    );
 }
 
 pub fn capture_delegate_urls() -> bool {
@@ -50,11 +55,20 @@ pub fn style_picker_window(window: &WebviewWindow, switcher: bool) -> Result<(),
         .map_err(|error| error.to_string())
 }
 
-pub fn activate_window(window: &WebviewWindow) -> Result<(), String> {
+pub fn present_rendered_window(
+    window: &WebviewWindow,
+    revision: u64,
+    is_current: extern "C" fn(u64) -> bool,
+) -> Result<(), String> {
     let native = window.ns_window().map_err(|error| error.to_string())? as usize;
     window
-        .run_on_main_thread(move || unsafe {
-            browsefork_activate_window(native as *mut c_void);
+        .with_webview(move |webview| unsafe {
+            browsefork_present_rendered_window(
+                native as *mut c_void,
+                webview.inner(),
+                revision,
+                is_current,
+            );
         })
         .map_err(|error| error.to_string())
 }

@@ -280,8 +280,13 @@ fn set_window_layout(
         let current_settings = app.state::<AppState>().settings.lock().unwrap().clone();
         let picker_style = current_settings.picker_style;
         let switcher = !settings && picker_style == PickerStyle::Switcher;
-        if window.is_decorated().ok() != Some(!switcher) {
-            if let Err(error) = window.set_decorations(!switcher) {
+        let decorated = if cfg!(target_os = "macos") {
+            settings
+        } else {
+            !switcher
+        };
+        if window.is_decorated().ok() != Some(decorated) {
+            if let Err(error) = window.set_decorations(decorated) {
                 eprintln!("BrowseFork: could not update window decorations: {error}");
             }
         }
@@ -303,7 +308,7 @@ fn set_window_layout(
             } else {
                 &LIST_LAYOUT
             };
-            let frame_height = if switcher {
+            let frame_height = if !decorated {
                 0.0
             } else {
                 window
@@ -785,6 +790,7 @@ fn set_picker_layout(
             if let Err(error) = platform::present_rendered_window(
                 &window,
                 presentation_revision,
+                settings,
                 macos_presentation_is_current,
             ) {
                 eprintln!("BrowseFork: could not prepare window presentation: {error}");
@@ -918,6 +924,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build BrowseFork");
+
+    // Setup runs after the event loop starts. Set the initial policy beforehand
+    // so macOS never records a transient regular-app launch in Dock Recents.
+    #[cfg(target_os = "macos")]
+    let mut app = app;
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     #[cfg(target_os = "macos")]
     if !platform::capture_delegate_urls() {

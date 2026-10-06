@@ -78,20 +78,50 @@ void browsefork_activate_window(void *native_window) {
     [window makeKeyAndOrderFront:nil];
 }
 
+// AppKit chrome is outside the WKWebView paint checkpoint. Repaint it when
+// a titled Settings window is revealed after being activated at zero opacity.
+static void browsefork_refresh_settings_titlebar(NSWindow *window) {
+    if (!(window.styleMask & NSWindowStyleMaskTitled)) return;
+    window.titleVisibility = NSWindowTitleVisible;
+    window.titlebarAppearsTransparent = NO;
+    for (NSNumber *kind in @[@(NSWindowCloseButton), @(NSWindowMiniaturizeButton), @(NSWindowZoomButton)]) {
+        NSButton *button = [window standardWindowButton:kind.unsignedIntegerValue];
+        button.hidden = NO;
+        button.alphaValue = 1.0;
+        button.needsDisplay = YES;
+        button.superview.needsDisplay = YES;
+    }
+    window.contentView.superview.needsDisplay = YES;
+    [window displayIfNeeded];
+}
+
 // A hidden WKWebView can still hold the previous compositor frame. Activate it
 // invisibly, finish the DOM/images/fonts, and wait for a rendered snapshot before
 // exposing the window. This is a paint barrier, not a timed fade or delay.
 void browsefork_present_rendered_window(void *native_window, void *native_webview,
-                                        uint64_t revision, bool (*is_current)(uint64_t)) {
+                                        uint64_t revision, bool settings, bool (*is_current)(uint64_t)) {
     NSWindow *window = (__bridge NSWindow *)native_window;
     WKWebView *webview = (__bridge WKWebView *)native_webview;
     if (!window || !webview || !is_current(revision)) return;
     BOOL alreadyVisible = window.visible && window.alphaValue > 0.0;
-    if (!alreadyVisible) window.alphaValue = 0.0;
+    if (settings) {
+        // Settings chrome must never be constructed or activated at zero opacity.
+        // Tauri's decoration change is asynchronous; apply the intended style here
+        // before preparing the first frame, rather than relying on its timing.
+        window.alphaValue = 1.0;
+        window.styleMask |= NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+            NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+        window.titleVisibility = NSWindowTitleVisible;
+        window.titlebarAppearsTransparent = NO;
+    } else if (!alreadyVisible) {
+        window.alphaValue = 0.0;
+    }
     window.animationBehavior = NSWindowAnimationBehaviorNone;
-    [NSApp activateIgnoringOtherApps:YES];
-    [window makeKeyAndOrderFront:nil];
-    [window makeFirstResponder:webview];
+    if (!settings || alreadyVisible) {
+        [NSApp activateIgnoringOtherApps:YES];
+        [window makeKeyAndOrderFront:nil];
+        [window makeFirstResponder:webview];
+    }
     [webview callAsyncJavaScript:@"return await window.browseforkReadyToPresent(revision);"
                        arguments:@{@"revision": @(revision)}
                          inFrame:nil
@@ -105,12 +135,18 @@ void browsefork_present_rendered_window(void *native_window, void *native_webvie
         WKSnapshotConfiguration *configuration = [WKSnapshotConfiguration new];
         configuration.afterScreenUpdates = YES;
         [webview takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *snapshotError) {
-            if (!is_current(revision) || !window.visible) return;
+            if (!is_current(revision) || (!settings && !window.visible)) return;
             if (snapshotError || !image) {
                 NSLog(@"BrowseFork: could not render window: %@", snapshotError);
                 return;
             }
             window.alphaValue = 1.0;
+            if (settings && !alreadyVisible) {
+                [NSApp activateIgnoringOtherApps:YES];
+                [window makeKeyAndOrderFront:nil];
+                [window makeFirstResponder:webview];
+            }
+            browsefork_refresh_settings_titlebar(window);
         }];
     }];
 }

@@ -6,10 +6,27 @@
 @property(nonatomic) CGFloat alphaValue;
 @property(nonatomic) NSWindowAnimationBehavior animationBehavior;
 @property(nonatomic) CGFloat alphaWhenOrderedFront;
+@property(nonatomic) NSWindowStyleMask styleMask;
+@property(nonatomic) NSWindowTitleVisibility titleVisibility;
+@property(nonatomic) BOOL titlebarAppearsTransparent;
+@property(nonatomic, strong) NSArray *buttons;
+@property(nonatomic) BOOL displayed;
+@property(nonatomic, strong) NSView *contentView;
 @end
 @implementation TestWindow
 - (void)makeKeyAndOrderFront:(id)sender { self.alphaWhenOrderedFront = self.alphaValue; self.visible = YES; }
 - (BOOL)makeFirstResponder:(id)responder { return YES; }
+- (id)standardWindowButton:(NSWindowButton)kind { return self.buttons[kind]; }
+- (void)displayIfNeeded { self.displayed = YES; }
+@end
+
+@interface TestButton : NSObject
+@property(nonatomic) BOOL hidden;
+@property(nonatomic) CGFloat alphaValue;
+@property(nonatomic) BOOL needsDisplay;
+@property(nonatomic, strong) NSView *superview;
+@end
+@implementation TestButton
 @end
 
 @interface TestWebView : NSObject
@@ -36,7 +53,7 @@ static void check(BOOL condition, NSString *message) {
     if (!condition) { fprintf(stderr, "%s\n", message.UTF8String); exit(1); }
 }
 static void begin(TestWindow *window, TestWebView *webview, uint64_t revision) {
-    browsefork_present_rendered_window((__bridge void *)window, (__bridge void *)webview, revision, isCurrent);
+    browsefork_present_rendered_window((__bridge void *)window, (__bridge void *)webview, revision, false, isCurrent);
 }
 int main(void) {
     @autoreleasepool {
@@ -74,6 +91,21 @@ int main(void) {
         window.alphaValue = 1.0;
         begin(window, webview, 2);
         check(window.alphaValue == 1.0, @"Refreshing an already visible chooser must not hide and flash it");
-        puts("5 native presentation regression cases passed");
+        window.styleMask = NSWindowStyleMaskTitled;
+        window.buttons = @[[TestButton new], [TestButton new], [TestButton new]];
+        for (TestButton *button in window.buttons) { button.hidden = YES; button.alphaValue = 0.0; }
+        window.visible = NO;
+        window.alphaValue = 0.0;
+        begin(window, webview, 1); // Obsolete request must do nothing.
+        browsefork_present_rendered_window((__bridge void *)window, (__bridge void *)webview, 2, true, isCurrent);
+        check(!window.visible && window.alphaValue == 1.0, @"Settings must prepare hidden at normal opacity");
+        webview.prepared(@YES, nil);
+        check(!window.visible, @"Settings must not appear before the frame is painted");
+        webview.painted([NSImage new], nil);
+        check(window.visible, @"Prepared Settings must be shown normally");
+        for (TestButton *button in window.buttons)
+            check(!button.hidden && button.alphaValue == 1.0 && button.needsDisplay, @"Settings traffic lights must be visible and repainted");
+        check(window.displayed, @"Settings chrome must be painted before the next visible frame");
+        puts("6 native presentation regression cases passed");
     }
 }

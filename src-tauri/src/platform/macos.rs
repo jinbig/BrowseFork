@@ -18,6 +18,7 @@ extern "C" {
         window: *mut c_void,
         webview: *mut c_void,
         revision: u64,
+        settings: bool,
         is_current: extern "C" fn(u64) -> bool,
     );
 }
@@ -58,6 +59,7 @@ pub fn style_picker_window(window: &WebviewWindow, switcher: bool) -> Result<(),
 pub fn present_rendered_window(
     window: &WebviewWindow,
     revision: u64,
+    settings: bool,
     is_current: extern "C" fn(u64) -> bool,
 ) -> Result<(), String> {
     let native = window.ns_window().map_err(|error| error.to_string())? as usize;
@@ -67,6 +69,7 @@ pub fn present_rendered_window(
                 native as *mut c_void,
                 webview.inner(),
                 revision,
+                settings,
                 is_current,
             );
         })

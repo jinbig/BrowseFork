@@ -28,7 +28,7 @@ test("macOS window reveal waits for the completed frame and cancels stale callba
     assert.equal(compile.status, 0, compile.stderr || compile.error?.message);
     const result = spawnSync(executable, [], { encoding: "utf8", timeout: 10000 });
     assert.equal(result.status, 0, result.stderr || result.error?.message);
-    assert.match(result.stdout, /5 native presentation regression cases passed/);
+    assert.match(result.stdout, /6 native presentation regression cases passed/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

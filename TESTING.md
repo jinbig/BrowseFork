@@ -1,5 +1,7 @@
 # Testing BrowseFork
 
+The expected interface behavior is defined in [UI_REQUIREMENTS.md](UI_REQUIREMENTS.md).
+
 ## Automated checks
 
 Run these from the repository root:
@@ -40,9 +42,9 @@ Use the installed, signed app and a disposable URL or local HTML file. Observe b
 | Open an unmatched HTTPS link from Terminal with `open 'https://example.com/browsefork-test'` while BrowseFork is the default browser | The chooser shows the link's host and the installed browsers. |
 | Open an unmatched link from Slack | The chooser appears in front and selecting a browser opens the exact link once. |
 | Open a link while another app is active, then press Tab without clicking BrowseFork | BrowseFork becomes the active app and focus moves through browser choices, Save choice, and the extra rule controls when enabled. |
-| Press Esc, open another unmatched link, then press Tab without clicking BrowseFork | The reopened chooser focuses its first browser again. |
+| Press Esc, open another unmatched link, then press Tab without clicking BrowseFork | The remembered browser is selected and focused before the chooser appears; Tab works without clicking the window. |
 | Open the icon switcher | Browser icons are sharp, and there is no native title bar or app-name header. The gear opens Preferences. |
-| Open Preferences or choose Browser list | The standard title bar returns. |
+| Open Preferences, then return to either browser chooser style | Preferences has the standard title bar and close, minimize, and zoom controls. Both chooser styles are frameless. |
 | Change Browser picker in Preferences, then restart the app | The selected icon switcher or browser list remains active. |
 | Resize Preferences, edit a rule, close it with Esc, then reopen it | Editing does not reset the size; the reopened window has the saved size. Repeat after quitting and relaunching BrowseFork. |
 | Use arrows or Command+1–9 in the icon switcher | The highlighted or numbered browser opens the link. |

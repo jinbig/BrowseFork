@@ -2,6 +2,8 @@
 
 BrowseFork receives links from macOS and Android and opens each one in a browser you choose. Rules can send matching links to a browser automatically; unmatched links show a compact picker.
 
+The agreed interface and window behavior is recorded in [UI_REQUIREMENTS.md](UI_REQUIREMENTS.md). Read it before changing the chooser, Settings, Dock visibility, or keyboard interaction.
+
 The routing engine and the HTML/CSS/JavaScript interface are shared. Android uses a small native Kotlin bridge for intents and browser discovery. See [ANDROID.md](ANDROID.md) for the APK, installation, tool setup, and emulator tests. macOS integration is implemented in `src-tauri/src/platform/macos.m` and `macos.rs`. Windows and Linux adapters are reserved in `src-tauri/src/platform/mod.rs` and currently return an explicit “not implemented” error.
 
 ## Features
@@ -16,7 +18,7 @@ The routing engine and the HTML/CSS/JavaScript interface are shared. Android use
 - **Regex:** Rust `regex` syntax against the full URL. Add `(?i)` for case-insensitive matching.
 - The picker has a **Save choice** checkbox. It starts with the current host or local HTML folder and lets you choose the detected source app, edit the pattern, and select a matching type before choosing a browser.
 - The chooser remembers the last highlighted browser while BrowseFork is running and restores its highlight and keyboard focus before showing the next link. On macOS, the window is revealed only after WebKit finishes preparing and rendering that state; unchanged browser tiles are reused.
-- The default picker is a compact horizontal icon switcher without a title bar. Tab or arrow keys move between browsers, Enter opens the highlighted browser, and Command+1–9 on macOS (Control+1–9 elsewhere) opens a numbered browser. Escape skips the link. The gear button opens Preferences, where you can switch back to the original browser list; the choice is saved.
+- On macOS, native close, minimize, and zoom buttons appear only in Preferences; both browser chooser styles are frameless. The default picker is a compact horizontal icon switcher without a title bar. Tab or arrow keys move between browsers, Enter opens the highlighted browser, and Command+1–9 on macOS (Control+1–9 elsewhere) opens a numbered browser. Escape skips the link. The gear button opens Preferences, where you can switch back to the original browser list; the choice is saved.
 - Local HTML files, including temporary sign-in pages, can use the picker or a saved folder rule.
 - Other links or documents delivered to BrowseFork show the browser picker. The Save choice controls are hidden when the item cannot be matched by a rule.
 - On macOS, BrowseFork runs without a Dock icon. Open BrowseFork.app normally to view and edit rules; `open 'browsefork://preferences'` also opens preferences.

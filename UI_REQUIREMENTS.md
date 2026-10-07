@@ -1,6 +1,6 @@
 # BrowseFork interface requirements
 
-Agreed user requirements, recorded on 2026-10-06. This is the reference for future
+Agreed user requirements, initially recorded on 2026-10-06 and updated with the latest user decisions. This is the reference for future
 interface changes. It describes the required behavior, not a claim that every
 requirement has already been verified. Later explicit user instructions take
 precedence; update this document when an agreed requirement changes.
@@ -11,7 +11,7 @@ precedence; update this document when an agreed requirement changes.
   startup, link handling, choosing a browser, and opening Settings.
 - **Only Settings/Preferences has the native close, minimize, and zoom buttons.**
   All three must be visibly painted and clickable, as in a normal macOS window.
-- Both browser chooser styles are frameless: no native title bar, traffic-light
+- The browser chooser is frameless: no native title bar, traffic-light
   buttons, app-name header, or large branding area.
 - Opening BrowseFork normally must provide access to Settings, or restore a
   waiting chooser with an accessible Settings control. Running without a Dock
@@ -41,10 +41,10 @@ precedence; update this document when an agreed requirement changes.
 
 ## Chooser appearance
 
-- Offer two chooser styles in Settings and persist the selected style:
-  - **Icon switcher**, the default: a compact horizontal browser strip inspired
-    by the macOS application switcher and Choosy.
-  - **Browser list**: one browser per row, with its icon and name.
+- **Icon switcher is the only chooser interface**: a compact horizontal browser
+  strip inspired by the macOS application switcher and Choosy.
+- Do not offer a browser-list interface or a chooser-style selector in Settings.
+  Ignore obsolete saved style preferences without losing rules or other settings.
 - Show the host/domain rather than the full URL. Use a concise label for local
   documents or other link types. Forward the original complete URL to the chosen
   browser, including its query and fragment.
@@ -52,8 +52,8 @@ precedence; update this document when an agreed requirement changes.
   fully visible, including the last browser in the strip.
 - Use rounded chooser corners and a compact layout. Typical browser counts
   should fit without scrolling; allow scrolling or wrapping when space requires it.
-- Show one selection highlight. In the list style, keyboard selection styling
-  begins with keyboard navigation rather than a default focus outline.
+- Show one selection highlight. Restore the remembered browser before display;
+  keyboard and pointer navigation update that selection consistently.
 - Browser update copies must not appear as duplicate choices. Prefer the
   installed macOS app over updater/cache copies. Separate browser editions with
   different identities remain separate choices.
@@ -78,7 +78,7 @@ precedence; update this document when an agreed requirement changes.
 
 ## Save choice and rule management
 
-- Keep **Save choice** available in both chooser styles. Checking it reveals
+- Keep **Save choice** available in the icon switcher. Checking it reveals
   editable matching controls before the browser is chosen.
 - Suggest the current host or local HTML folder. Allow a source app, host,
   substring, or regular expression to be selected/edited as applicable.

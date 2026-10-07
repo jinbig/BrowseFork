@@ -4,7 +4,7 @@ mod platform;
 use browsefork_core::WindowSize;
 use browsefork_core::{
     dispatch_link_for_source, load_settings, parse_openable_url, save_settings, suggested_pattern,
-    DispatchOutcome, MatchMode, PendingLinks, PickerStyle, Rule, Settings,
+    DispatchOutcome, MatchMode, PendingLinks, Rule, Settings,
 };
 use platform::{Browser, SourceApp};
 use serde::{Deserialize, Serialize};
@@ -34,8 +34,6 @@ const MAX_PICKER_WIDTH: f64 = 760.0;
 const MIN_PICKER_HEIGHT: f64 = 200.0;
 #[cfg(not(target_os = "android"))]
 const MAX_PICKER_HEIGHT: f64 = 720.0;
-#[cfg(not(target_os = "android"))]
-const LIST_TITLE_BAR_FALLBACK_HEIGHT: f64 = 30.0;
 #[cfg(target_os = "macos")]
 const OPEN_EVENT_GRACE_PERIOD: Duration = Duration::from_millis(250);
 #[cfg(target_os = "macos")]
@@ -54,13 +52,6 @@ const SWITCHER_LAYOUT: PickerLayout = PickerLayout {
     default_content_height: 220.0,
     vertical_padding: 4.0,
 };
-#[cfg(not(target_os = "android"))]
-const LIST_LAYOUT: PickerLayout = PickerLayout {
-    default_width: 440.0,
-    default_content_height: 390.0,
-    vertical_padding: 32.0,
-};
-
 struct AppState {
     settings: Mutex<Settings>,
     pending: Mutex<PendingLinks>,
@@ -200,7 +191,6 @@ struct Snapshot {
     browsers: Vec<Browser>,
     source_apps: Vec<SourceApp>,
     rules: Vec<Rule>,
-    picker_style: PickerStyle,
     error: Option<String>,
 }
 
@@ -235,7 +225,6 @@ fn snapshot(state: &AppState) -> Snapshot {
     let source_apps = platform::list_source_apps();
     let settings = state.settings.lock().unwrap();
     let rules = settings.rules.clone();
-    let picker_style = settings.picker_style;
     drop(settings);
     let presentation = state.presentation.lock().unwrap();
     let presentation_revision = presentation.revision;
@@ -260,7 +249,6 @@ fn snapshot(state: &AppState) -> Snapshot {
         browsers,
         source_apps,
         rules,
-        picker_style,
         error: discovery_error.or_else(|| state.startup_error.lock().unwrap().clone()),
     }
 }
@@ -278,13 +266,8 @@ fn set_window_layout(
 ) {
     if let Some(window) = app.get_webview_window("main") {
         let current_settings = app.state::<AppState>().settings.lock().unwrap().clone();
-        let picker_style = current_settings.picker_style;
-        let switcher = !settings && picker_style == PickerStyle::Switcher;
-        let decorated = if cfg!(target_os = "macos") {
-            settings
-        } else {
-            !switcher
-        };
+        let switcher = !settings;
+        let decorated = settings;
         if window.is_decorated().ok() != Some(decorated) {
             if let Err(error) = window.set_decorations(decorated) {
                 eprintln!("BrowseFork: could not update window decorations: {error}");
@@ -303,27 +286,9 @@ fn set_window_layout(
                 })
                 .unwrap_or(SETTINGS_WINDOW_SIZE)
         } else {
-            let layout = if switcher {
-                &SWITCHER_LAYOUT
-            } else {
-                &LIST_LAYOUT
-            };
-            let frame_height = if !decorated {
-                0.0
-            } else {
-                window
-                    .scale_factor()
-                    .ok()
-                    .and_then(|scale| {
-                        let outer = window.outer_size().ok()?.to_logical::<f64>(scale);
-                        let inner = window.inner_size().ok()?.to_logical::<f64>(scale);
-                        Some(outer.height - inner.height)
-                    })
-                    .unwrap_or(LIST_TITLE_BAR_FALLBACK_HEIGHT)
-            };
-            let desired_height = content_height.unwrap_or(layout.default_content_height)
-                + frame_height
-                + layout.vertical_padding;
+            let layout = &SWITCHER_LAYOUT;
+            let desired_height =
+                content_height.unwrap_or(layout.default_content_height) + layout.vertical_padding;
             LogicalSize {
                 width: content_width
                     .unwrap_or(layout.default_width)
@@ -806,15 +771,6 @@ fn set_picker_layout(
 }
 
 #[tauri::command]
-fn set_picker_style(state: State<'_, AppState>, style: PickerStyle) -> Result<Snapshot, String> {
-    let mut settings = state.settings.lock().unwrap().clone();
-    settings.picker_style = style;
-    save_settings(&state.settings_path, &settings)?;
-    *state.settings.lock().unwrap() = settings;
-    Ok(snapshot(&state))
-}
-
-#[tauri::command]
 fn replace_rules(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -918,7 +874,6 @@ pub fn run() {
             skip_link,
             dismiss_window,
             set_picker_layout,
-            set_picker_style,
             replace_rules,
             request_default_browser
         ])

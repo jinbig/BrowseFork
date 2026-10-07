@@ -6,7 +6,7 @@ The Android app uses the same Rust rule engine, preferences model, pending-link
 queue, and HTML/CSS/JavaScript interface as macOS. The Android adapter handles
 native intents, browser discovery/icons, explicit browser launching, the browser
 role prompt, lifecycle events, and system Back. The interface adapts to touch and
-phone screens; both icon switcher and browser list are available.
+phone screens; the icon switcher is the only chooser interface.
 
 - Choose BrowseFork as the default browser to receive system HTTP/HTTPS links.
 - Matching rules open the selected browser automatically. Other links show the chooser.

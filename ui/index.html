@@ -18,7 +18,6 @@
       <p id="loading" class="empty-state" hidden>Loading browsers…</p>
 
       <section id="chooser-view" hidden>
-        <h1>Open with</h1>
         <div id="browser-list" class="browser-list" aria-label="Available browsers"></div>
         <p id="selected-browser" class="selected-browser" aria-live="polite" hidden></p>
         <p id="pending-host" class="pending-host"></p>
@@ -45,7 +44,7 @@
           </div>
         </div>
         <div class="chooser-footer">
-          <span id="keyboard-hint" class="keyboard-hint">Tab to move · Enter to open · Esc to skip</span>
+          <span id="keyboard-hint" class="keyboard-hint">Tab / ← → · Enter · Esc</span>
           <span id="queue-status" class="queue-status" hidden></span>
           <button id="skip-link" class="quiet-button" type="button">Skip</button>
           <button id="switcher-settings" class="quiet-button switcher-settings" type="button" aria-label="Preferences" title="Preferences" hidden>⚙</button>
@@ -59,13 +58,6 @@
         <div id="android-setup" class="android-setup" hidden>
           <p id="default-browser-status">Set BrowseFork as your default browser to choose where links open.</p>
           <button id="make-default-browser" class="primary-button" type="button">Set as default browser</button>
-        </div>
-        <div class="picker-preference">
-          <label for="picker-style">Browser picker</label>
-          <select id="picker-style">
-            <option value="switcher">Icon switcher (default)</option>
-            <option value="list">Browser list</option>
-          </select>
         </div>
         <div id="rules-list" class="rules-list"></div>
 

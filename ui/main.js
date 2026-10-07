@@ -14,11 +14,9 @@ let renderedBrowsers = [];
 let lastPointerPosition = null;
 let refreshToken = 0;
 
-const pickerStyle = () => snapshot?.picker_style || "switcher";
 const isAndroid = () => snapshot?.platform === "android";
 const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
 
-const LIST_PICKER_WIDTH = 440;
 const MIN_SWITCHER_WIDTH = 320;
 const MAX_PICKER_WIDTH = 760;
 // Keep these dimensions in sync with the switcher tile, gap, and horizontal padding in styles.css.
@@ -87,7 +85,7 @@ function renderBrowsers(focusSelection = false) {
       return browser.id !== next.id || browser.name !== next.name || browser.icon_data_url !== next.icon_data_url;
     });
   if (browsersChanged) list.replaceChildren();
-  $("selected-browser").hidden = pickerStyle() !== "switcher";
+  $("selected-browser").hidden = false;
   if (snapshot.browsers.length === 0) {
     $("selected-browser").textContent = "";
     list.replaceChildren(node("p", "empty-state", "No browsers were found. Install a browser and try again."));
@@ -267,16 +265,13 @@ function render() {
   }
   const hasPending = Boolean(snapshot.pending_url);
   const settingsVisible = showSettings || !hasPending;
-  const switcherVisible = !settingsVisible && pickerStyle() === "switcher";
   const newLink = hasPending && snapshot.pending_url !== displayedUrl;
   document.body.classList.toggle("chooser-mode", !settingsVisible);
-  document.body.classList.toggle("picker-switcher", switcherVisible);
-  document.body.classList.toggle("picker-list", !settingsVisible && pickerStyle() === "list");
-  $("topbar").hidden = switcherVisible;
-  $("switcher-settings").hidden = !switcherVisible;
+  document.body.classList.toggle("picker-switcher", !settingsVisible);
+  $("topbar").hidden = !settingsVisible;
+  $("switcher-settings").hidden = settingsVisible;
   $("chooser-view").hidden = settingsVisible;
   $("settings-view").hidden = !settingsVisible;
-  $("picker-style").value = pickerStyle();
   $("settings-toggle").textContent = settingsVisible && hasPending ? "Back to link" : "Preferences";
   $("settings-toggle").hidden = !hasPending;
   $("android-setup").hidden = !isAndroid();
@@ -289,8 +284,6 @@ function render() {
     $("make-default-browser").hidden = snapshot.is_default_browser === true;
     $("setup-note").textContent = "Apps may use their own browser or open verified app links directly. Source app rules work when the sender provides its app ID; otherwise URL rules apply.";
   }
-  $("keyboard-hint").textContent = pickerStyle() === "switcher"
-    ? "Tab / ← → · Enter · Esc" : "Tab to move · Enter to open · Esc to skip";
   if (snapshot.error) message(snapshot.error);
 
   if (hasPending) {
@@ -353,8 +346,7 @@ function updateLayout() {
     settings,
     displayedUrl: settings ? null : snapshot.pending_url,
     contentHeight: settings || isAndroid() ? null : Math.ceil($("shell").scrollHeight),
-    contentWidth: settings || isAndroid() ? null : pickerStyle() === "switcher"
-      ? switcherWidth(snapshot.browsers.length) : LIST_PICKER_WIDTH
+    contentWidth: settings || isAndroid() ? null : switcherWidth(snapshot.browsers.length)
   }).catch((error) => message(String(error)));
 }
 
@@ -447,17 +439,6 @@ function toggleSettings() {
 $("settings-toggle").addEventListener("click", toggleSettings);
 $("switcher-settings").addEventListener("click", toggleSettings);
 
-$("picker-style").addEventListener("change", async (event) => {
-  try {
-    snapshot = await invoke("set_picker_style", { style: event.target.value });
-    message("");
-    render();
-  } catch (error) {
-    $("picker-style").value = pickerStyle();
-    message(String(error));
-  }
-});
-
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
@@ -471,7 +452,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   const browserButtons = [...$("browser-list").querySelectorAll("button")];
-  if (pickerStyle() === "switcher" && (event.metaKey || event.ctrlKey) &&
+  if ((event.metaKey || event.ctrlKey) &&
       /^[1-9]$/.test(event.key)) {
     const browser = snapshot.browsers[Number(event.key) - 1];
     if (!browser) return;
@@ -479,7 +460,7 @@ document.addEventListener("keydown", (event) => {
     choose(browser.id);
     return;
   }
-  if (pickerStyle() === "switcher" && ["ArrowLeft", "ArrowRight"].includes(event.key) &&
+  if (["ArrowLeft", "ArrowRight"].includes(event.key) &&
       document.activeElement !== $("save-source-app") && document.activeElement !== $("save-mode") && document.activeElement !== $("save-pattern")) {
     if (!browserButtons.length) return;
     event.preventDefault();
@@ -489,7 +470,7 @@ document.addEventListener("keydown", (event) => {
     focusBrowser((current + direction + browserButtons.length) % browserButtons.length);
     return;
   }
-  if (pickerStyle() === "switcher" && event.key === "Enter" && selectedBrowserId &&
+  if (event.key === "Enter" && selectedBrowserId &&
       ![$("save-source-app"), $("save-mode"), $("save-pattern"), $("skip-link"), $("settings-toggle"), $("switcher-settings")]
         .includes(document.activeElement)) {
     event.preventDefault();
@@ -502,7 +483,7 @@ document.addEventListener("keydown", (event) => {
     ...($("save-card").hidden ? [] : [$("save-choice")]),
     ...($("save-card").hidden || $("save-rule-fields").hidden ? [] : [$("save-source-app"), $("save-mode"), $("save-pattern")]),
     $("skip-link"),
-    pickerStyle() === "switcher" ? $("switcher-settings") : $("settings-toggle")
+    $("switcher-settings")
   ];
   if (!stops.length) return;
   event.preventDefault();

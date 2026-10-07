@@ -20,7 +20,6 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
     pending_source_app_id: "com.tinyspeck.slackmacgap",
     pending_count: 1,
     suggested_pattern: "ya.ru",
-    picker_style: "switcher",
     browsers: [
       { id: "brave", name: "Brave", icon_data_url: null },
       { id: "safari", name: "Safari", icon_data_url: null },
@@ -145,10 +144,6 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
       selectionAtCall: command === "set_picker_layout" ? $("selected-browser").textContent : null,
       focusAtCall: command === "set_picker_layout" ? document.activeElement?.title : null });
     if (command === "get_snapshot") return snapshot;
-    if (command === "set_picker_style") {
-      snapshot = { ...snapshot, picker_style: args.style };
-      return snapshot;
-    }
     if (command === "dismiss_window") {
       if (args.expectedRevision !== snapshot.presentation_revision) return snapshot;
       snapshot = { ...snapshot, presentation_revision: snapshot.presentation_revision + 1 };
@@ -400,20 +395,22 @@ test("switcher command-number shortcut opens the matching browser", async () => 
   assert.equal(app.calls.find((call) => call.command === "choose_browser").args.browserId, "safari");
 });
 
-test("picker preference switches to the original list and persists the selection", async () => {
+test("Settings has no chooser-style option and old list preferences still show the switcher", async () => {
+  const html = fs.readFileSync(path.join(__dirname, "../ui/index.html"), "utf8");
+  assert.doesNotMatch(html, /picker-style|picker-preference|Browser list/);
   const app = chooser();
   await settle();
-  app.$("switcher-settings").click();
-  assert.equal(app.$("topbar").hidden, false);
-  assert.equal(app.$("switcher-settings").hidden, true);
-  app.$("picker-style").value = "list";
-  app.$("picker-style").dispatch("change");
+  app.setSnapshot({ ...app.getSnapshot(), picker_style: "list" });
   await settle();
-  assert.equal(app.calls.find((call) => call.command === "set_picker_style").args.style, "list");
-  assert.equal(app.$("picker-style").value, "list");
+  assert.equal(app.document.body.classList.contains("picker-switcher"), true);
+  assert.equal(app.document.body.classList.contains("picker-list"), false);
+  assert.equal(app.$("selected-browser").hidden, false);
+  app.$("switcher-settings").click();
+  assert.equal(app.$("settings-view").hidden, false);
+  assert.equal(app.$("topbar").hidden, false);
   app.$("settings-toggle").click();
-  assert.equal(app.document.body.classList.contains("picker-list"), true);
-  assert.equal(app.$("selected-browser").hidden, true);
+  assert.equal(app.document.body.classList.contains("picker-switcher"), true);
+  assert.equal(app.$("topbar").hidden, true);
   assert.equal(app.$("pending-host").textContent, "ya.ru");
 });
 
@@ -426,7 +423,6 @@ test("a new link lays out the chooser with the new presentation revision", async
     pending_url: "https://new-link.invalid/",
     pending_count: 1,
     suggested_pattern: "new-link.invalid",
-    picker_style: "switcher",
     browsers: [{ id: "safari", name: "Safari", icon_data_url: null }],
     rules: [],
     error: null,
@@ -455,7 +451,6 @@ test("opening Preferences refreshes its presentation revision before layout", as
     pending_url: null,
     pending_count: 0,
     suggested_pattern: null,
-    picker_style: "switcher",
     browsers: [{ id: "safari", name: "Safari", icon_data_url: null }],
     rules: [],
     error: null,
@@ -526,7 +521,6 @@ test("late focus loss cannot dismiss a newly arrived link", async () => {
     pending_url: "https://new-link.invalid/",
     pending_count: 2,
     suggested_pattern: "new-link.invalid",
-    picker_style: "switcher",
     browsers: [{ id: "safari", name: "Safari", icon_data_url: null }],
     rules: [],
     error: null,

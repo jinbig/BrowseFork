@@ -2,7 +2,7 @@
 
 Private native Tauri plugin for Android intent delivery, browser/source app discovery,
 high-resolution app icons, explicit browser launching, Back handling, and the default
-browser role prompt. Rules, persistence, pending-link queue, and both chooser UIs
+browser role prompt. Rules, persistence, pending-link queue, and the icon switcher
 remain in the shared Rust and web application.
 
 Native commands are invoked by Rust, not exposed directly to the web UI. Kotlin

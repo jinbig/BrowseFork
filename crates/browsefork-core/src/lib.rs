@@ -12,14 +12,6 @@ pub use routing::{
 
 pub const SETTINGS_VERSION: u32 = 1;
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PickerStyle {
-    #[default]
-    Switcher,
-    List,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchMode {
@@ -43,8 +35,6 @@ pub struct Rule {
 pub struct Settings {
     pub version: u32,
     pub rules: Vec<Rule>,
-    #[serde(default)]
-    pub picker_style: PickerStyle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferences_window_size: Option<WindowSize>,
 }
@@ -60,7 +50,6 @@ impl Default for Settings {
         Self {
             version: SETTINGS_VERSION,
             rules: Vec::new(),
-            picker_style: PickerStyle::default(),
             preferences_window_size: None,
         }
     }
@@ -265,7 +254,6 @@ pub fn load_settings(path: &Path) -> Result<Settings, String> {
     }
     let mut checked = Settings::default();
     checked.replace_rules(settings.rules)?;
-    checked.picker_style = settings.picker_style;
     checked.preferences_window_size = settings.preferences_window_size;
     Ok(checked)
 }
@@ -516,14 +504,12 @@ mod tests {
         let path = folder.join("nested/preferences.json");
         let defaults = load_settings(&path).unwrap();
         assert!(defaults.rules.is_empty());
-        assert_eq!(defaults.picker_style, PickerStyle::Switcher);
         assert_eq!(defaults.preferences_window_size, None);
 
         let mut settings = Settings::default();
         settings
             .add_rule(MatchMode::Host, "example.com".into(), "browser".into())
             .unwrap();
-        settings.picker_style = PickerStyle::List;
         settings.preferences_window_size = Some(WindowSize {
             width: 780,
             height: 640,
@@ -532,17 +518,30 @@ mod tests {
         let loaded = load_settings(&path).unwrap();
         assert_eq!(loaded.version, SETTINGS_VERSION);
         assert_eq!(loaded.rules, settings.rules);
-        assert_eq!(loaded.picker_style, PickerStyle::List);
         assert_eq!(
             loaded.preferences_window_size,
             settings.preferences_window_size
         );
 
+        // Old chooser preferences are ignored without losing rules or window size.
+        for old_style in ["list", "switcher"] {
+            let mut legacy = serde_json::to_value(&settings).unwrap();
+            legacy["picker_style"] = serde_json::json!(old_style);
+            std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+            let migrated = load_settings(&path).unwrap();
+            assert_eq!(migrated.rules, settings.rules);
+            assert_eq!(
+                migrated.preferences_window_size,
+                settings.preferences_window_size
+            );
+            save_settings(&path, &migrated).unwrap();
+            let written: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert!(written.get("picker_style").is_none());
+        }
+
         std::fs::write(&path, r#"{"version":1,"rules":[]}"#).unwrap();
-        assert_eq!(
-            load_settings(&path).unwrap().picker_style,
-            PickerStyle::Switcher
-        );
+        assert!(load_settings(&path).unwrap().rules.is_empty());
         assert_eq!(load_settings(&path).unwrap().preferences_window_size, None);
 
         std::fs::write(&path, r#"{"version":999,"rules":[]}"#).unwrap();

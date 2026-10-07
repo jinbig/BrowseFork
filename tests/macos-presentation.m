@@ -11,11 +11,13 @@
 @property(nonatomic) BOOL titlebarAppearsTransparent;
 @property(nonatomic, strong) NSArray *buttons;
 @property(nonatomic) BOOL displayed;
+@property(nonatomic) NSUInteger activations;
+@property(nonatomic) NSUInteger focusChanges;
 @property(nonatomic, strong) NSView *contentView;
 @end
 @implementation TestWindow
-- (void)makeKeyAndOrderFront:(id)sender { self.alphaWhenOrderedFront = self.alphaValue; self.visible = YES; }
-- (BOOL)makeFirstResponder:(id)responder { return YES; }
+- (void)makeKeyAndOrderFront:(id)sender { self.alphaWhenOrderedFront = self.alphaValue; self.visible = YES; self.activations += 1; }
+- (BOOL)makeFirstResponder:(id)responder { self.focusChanges += 1; return YES; }
 - (id)standardWindowButton:(NSWindowButton)kind { return self.buttons[kind]; }
 - (void)displayIfNeeded { self.displayed = YES; }
 @end
@@ -106,6 +108,24 @@ int main(void) {
         for (TestButton *button in window.buttons)
             check(!button.hidden && button.alphaValue == 1.0 && button.needsDisplay, @"Settings traffic lights must be visible and repainted");
         check(window.displayed, @"Settings chrome must be painted before the next visible frame");
-        puts("6 native presentation regression cases passed");
+        NSUInteger activations = window.activations;
+        NSUInteger focusChanges = window.focusChanges;
+        for (TestButton *button in window.buttons) { button.hidden = YES; button.alphaValue = 0.0; button.needsDisplay = NO; }
+        window.displayed = NO;
+        browsefork_refresh_settings_after_render((__bridge void *)window, (__bridge void *)webview, 2, isCurrent);
+        webview.prepared(@YES, nil);
+        check(!window.displayed, @"A Settings update must wait for its completed web frame");
+        webview.painted([NSImage new], nil);
+        for (TestButton *button in window.buttons)
+            check(!button.hidden && button.alphaValue == 1.0 && button.needsDisplay, @"Saving rules must restore Settings traffic lights");
+        check(window.displayed && window.alphaValue == 1.0 && window.visible, @"A refresh must repaint chrome without hiding Settings");
+        check(window.activations == activations && window.focusChanges == focusChanges, @"A data refresh must not reactivate or steal form focus");
+        window.displayed = NO;
+        browsefork_refresh_settings_after_render((__bridge void *)window, (__bridge void *)webview, 2, isCurrent);
+        webview.prepared(@YES, nil);
+        requested = false; // Settings was closed or replaced by the chooser.
+        webview.painted([NSImage new], nil);
+        check(!window.displayed, @"A stale Settings refresh must not paint another view");
+        puts("8 native presentation regression cases passed");
     }
 }

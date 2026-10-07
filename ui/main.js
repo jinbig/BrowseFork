@@ -15,6 +15,9 @@ let lastPointerPosition = null;
 let refreshToken = 0;
 
 const isAndroid = () => snapshot?.platform === "android";
+const pageRole = new URL(window.location?.href || "http://localhost/").searchParams.get("view");
+const usesMacWindows = () => snapshot?.platform === "macos" && pageRole !== null;
+const settingsVisible = () => usesMacWindows() ? pageRole === "settings" : showSettings || !snapshot?.pending_url;
 const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
 
 const MIN_SWITCHER_WIDTH = 320;
@@ -250,9 +253,10 @@ function render() {
   document.body.classList.toggle("mobile-android", isAndroid());
   const loading = snapshot.ready === false;
   const mobileDismissed = isAndroid() && snapshot.presentation_requested === null;
+  const inactiveMacPage = usesMacWindows() && snapshot.presentation_requested !== (pageRole === "settings");
   $("loading").hidden = !loading;
-  if (loading || mobileDismissed) {
-    if (mobileDismissed) {
+  if (loading || mobileDismissed || inactiveMacPage) {
+    if (mobileDismissed || (usesMacWindows() && snapshot.presentation_requested === null)) {
       displayedUrl = null;
       selectedBrowserId = null;
       renderedChooserRevision = null;
@@ -264,15 +268,15 @@ function render() {
     return;
   }
   const hasPending = Boolean(snapshot.pending_url);
-  const settingsVisible = showSettings || !hasPending;
+  const showingSettings = settingsVisible();
   const newLink = hasPending && snapshot.pending_url !== displayedUrl;
-  document.body.classList.toggle("chooser-mode", !settingsVisible);
-  document.body.classList.toggle("picker-switcher", !settingsVisible);
-  $("topbar").hidden = !settingsVisible;
-  $("switcher-settings").hidden = settingsVisible;
-  $("chooser-view").hidden = settingsVisible;
-  $("settings-view").hidden = !settingsVisible;
-  $("settings-toggle").textContent = settingsVisible && hasPending ? "Back to link" : "Preferences";
+  document.body.classList.toggle("chooser-mode", !showingSettings);
+  document.body.classList.toggle("picker-switcher", !showingSettings);
+  $("topbar").hidden = !showingSettings;
+  $("switcher-settings").hidden = showingSettings;
+  $("chooser-view").hidden = showingSettings;
+  $("settings-view").hidden = !showingSettings;
+  $("settings-toggle").textContent = showingSettings && hasPending ? "Back to link" : "Preferences";
   $("settings-toggle").hidden = !hasPending;
   $("android-setup").hidden = !isAndroid();
   $("keyboard-hint").hidden = isAndroid();
@@ -320,13 +324,13 @@ function render() {
     const olderCount = snapshot.pending_count - 1;
     $("queue-status").textContent = `${olderCount} older ${olderCount === 1 ? "link" : "links"} waiting`;
     $("queue-status").hidden = olderCount === 0;
-    const newPresentation = !settingsVisible && renderedChooserRevision !== snapshot.presentation_revision;
+    const newPresentation = !showingSettings && renderedChooserRevision !== snapshot.presentation_revision;
     if (newPresentation) {
       document.body.classList.remove("keyboard-navigation");
       lastPointerPosition = null;
     }
     renderBrowsers(newPresentation);
-    renderedChooserRevision = settingsVisible ? null : snapshot.presentation_revision;
+    renderedChooserRevision = showingSettings ? null : snapshot.presentation_revision;
   } else {
     renderedChooserRevision = null;
     displayedUrl = null;
@@ -340,7 +344,7 @@ function render() {
 }
 
 function updateLayout() {
-  const settings = showSettings || !snapshot?.pending_url;
+  const settings = settingsVisible();
   invoke("set_picker_layout", {
     presentationRevision: snapshot.presentation_revision,
     settings,
@@ -431,6 +435,10 @@ $("save-choice").addEventListener("change", (event) => {
 });
 
 function toggleSettings() {
+  if (usesMacWindows()) {
+    invoke("set_view", { settings: pageRole === "chooser" }).catch((error) => message(String(error)));
+    return;
+  }
   showSettings = !showSettings;
   message("");
   render();
@@ -542,6 +550,7 @@ $("rule-form").addEventListener("submit", async (event) => {
 // No timer/rAF is used: hidden web views may throttle those callbacks.
 window.browseforkReadyToPresent = async (revision) => {
   if (!snapshot || snapshot.presentation_revision !== revision) return false;
+  if (usesMacWindows() && snapshot.presentation_requested !== (pageRole === "settings")) return false;
   if (document.fonts) await document.fonts.ready;
   const icons = [...$("browser-list").querySelectorAll("img")];
   await Promise.all(icons.map((icon) => icon.decode().catch(() => {})));
@@ -559,9 +568,11 @@ listen("browsefork-state-changed", () => {
   refresh();
 });
 listen("browsefork-open-preferences", () => {
+  if (usesMacWindows() && pageRole !== "settings") return;
   showSettings = true;
   refresh();
 });
 listen("browsefork-window-inactive", ({ payload }) => dismissWindow(payload));
 listen("browsefork-platform-changed", refresh);
+listen("browsefork-rules-changed", refresh);
 refresh();

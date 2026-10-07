@@ -13,9 +13,16 @@
     "test": "node --test tests/ui.test.cjs",
     "test:macos-discovery": "node --test tests/macos-browser-discovery.test.cjs",
     "test:bundle": "node --test tests/macos-bundle.test.cjs",
-    "test:macos-smoke": "node --test tests/macos-smoke.cjs"
+    "test:macos-smoke": "node --test tests/macos-smoke.cjs",
+    "test:gui": "node scripts/gui-check.cjs",
+    "test:gui:status": "node scripts/gui-check.cjs status",
+    "test:gui:watch": "node scripts/gui-check.cjs watch",
+    "test:gui:webkit": "node scripts/gui-check.cjs browser",
+    "test:gui:tauri": "node --test tests/tauri-settings.test.cjs",
+    "test:gui:install": "node scripts/gui-check.cjs install"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tauri-apps/cli": "^2.0.0"
   }
 }

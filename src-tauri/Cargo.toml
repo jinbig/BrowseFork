@@ -4,6 +4,16 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 build = "build.rs"
+default-run = "browsefork"
+
+[features]
+gui-tests = []
+custom-protocol = ["tauri/custom-protocol"]
+
+[[bin]]
+name = "gui-regression"
+path = "src/bin/gui-regression.rs"
+required-features = ["gui-tests"]
 
 [lib]
 name = "browsefork_lib"

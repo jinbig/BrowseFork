@@ -12,6 +12,7 @@
       {
         "label": "main",
         "title": "BrowseFork",
+        "url": "index.html?view=chooser",
         "visible": false,
         "decorations": false,
         "width": 620,

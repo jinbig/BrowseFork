@@ -79,7 +79,7 @@ void browsefork_activate_window(void *native_window) {
 }
 
 // AppKit chrome is outside the WKWebView paint checkpoint. Repaint it when
-// a titled Settings window is revealed after being activated at zero opacity.
+// a titled Settings window is revealed or its web content changes.
 static void browsefork_refresh_settings_titlebar(NSWindow *window) {
     if (!(window.styleMask & NSWindowStyleMaskTitled)) return;
     window.titleVisibility = NSWindowTitleVisible;
@@ -109,8 +109,9 @@ void browsefork_present_rendered_window(void *native_window, void *native_webvie
         // Tauri's decoration change is asynchronous; apply the intended style here
         // before preparing the first frame, rather than relying on its timing.
         window.alphaValue = 1.0;
-        window.styleMask |= NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+        NSWindowStyleMask settingsStyle = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
             NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+        if ((window.styleMask & settingsStyle) != settingsStyle) window.styleMask |= settingsStyle;
         window.titleVisibility = NSWindowTitleVisible;
         window.titlebarAppearsTransparent = NO;
     } else if (!alreadyVisible) {
@@ -146,6 +147,29 @@ void browsefork_present_rendered_window(void *native_window, void *native_webvie
                 [window makeKeyAndOrderFront:nil];
                 [window makeFirstResponder:webview];
             }
+            browsefork_refresh_settings_titlebar(window);
+        }];
+    }];
+}
+
+// A rule edit changes only web content, so no new window presentation occurs.
+// Refresh AppKit chrome after that frame finishes, without resizing, activating,
+// or moving keyboard focus away from the Settings form.
+void browsefork_refresh_settings_after_render(void *native_window, void *native_webview,
+                                              uint64_t revision, bool (*is_current)(uint64_t)) {
+    NSWindow *window = (__bridge NSWindow *)native_window;
+    WKWebView *webview = (__bridge WKWebView *)native_webview;
+    if (!window || !webview || !window.visible || !is_current(revision)) return;
+    [webview callAsyncJavaScript:@"return await window.browseforkReadyToPresent(revision);"
+                       arguments:@{@"revision": @(revision)}
+                         inFrame:nil
+                  inContentWorld:WKContentWorld.pageWorld
+               completionHandler:^(id ready, NSError *error) {
+        if (error || ![ready isEqual:@YES] || !window.visible || !is_current(revision)) return;
+        WKSnapshotConfiguration *configuration = [WKSnapshotConfiguration new];
+        configuration.afterScreenUpdates = YES;
+        [webview takeSnapshotWithConfiguration:configuration completionHandler:^(NSImage *image, NSError *snapshotError) {
+            if (snapshotError || !image || !window.visible || !is_current(revision)) return;
             browsefork_refresh_settings_titlebar(window);
         }];
     }];

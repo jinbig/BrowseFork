@@ -27,7 +27,8 @@ pub use android::{list_browsers, list_source_apps, open_url};
 pub use macos::{
     capture_delegate_urls, install_deactivation_handler, install_launch_observer,
     install_url_handler, is_app_active, list_browsers, list_source_apps, open_url,
-    present_rendered_window, style_picker_window, was_default_launch,
+    present_rendered_window, refresh_settings_after_render, style_picker_window,
+    was_default_launch,
 };
 
 #[cfg(not(any(target_os = "macos", target_os = "android")))]

@@ -49,7 +49,7 @@ Quit BrowseFork before replacing an earlier install. Closing the chooser with Es
 
 macOS delivers only schemes and document types registered to BrowseFork. BrowseFork registers `http`, `https`, and HTML documents; it does not take over schemes such as `mailto` from their existing handlers. If another item is sent directly to BrowseFork, it asks which browser to use instead of silently discarding it.
 
-For development, `npm run dev` runs the shared UI and Rust backend. Run `cargo test --workspace` and `npm test` for core and chooser tests. See [TESTING.md](TESTING.md) for the macOS checks.
+For development, `npm run dev` runs the shared UI and Rust backend. Run `npm run test:gui` after interface changes and `npm run test:gui:status` before completing the request. Use `npm run test:gui:watch` for automatic reruns. Run `cargo test --workspace` and `npm test` for individual core and chooser checks. See [TESTING.md](TESTING.md) for the macOS checks.
 
 ## Project layout
 

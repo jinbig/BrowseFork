@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "../ui/main.js"), "utf8");
 
-function chooser({ framesEnabled = true, platform = "macos", ready = true, fontsReady = Promise.resolve() } = {}) {
+function chooser({ framesEnabled = true, platform = "macos", ready = true, fontsReady = Promise.resolve(), windowRole = null } = {}) {
   const calls = [];
   const listeners = new Map();
   const elements = new Map();
@@ -144,6 +144,11 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
       selectionAtCall: command === "set_picker_layout" ? $("selected-browser").textContent : null,
       focusAtCall: command === "set_picker_layout" ? document.activeElement?.title : null });
     if (command === "get_snapshot") return snapshot;
+    if (command === "set_view") {
+      snapshot = { ...snapshot, presentation_requested: args.settings, presentation_revision: snapshot.presentation_revision + 1 };
+      listeners.get(args.settings ? "browsefork-open-preferences" : "browsefork-state-changed")?.();
+      return;
+    }
     if (command === "dismiss_window") {
       if (args.expectedRevision !== snapshot.presentation_revision) return snapshot;
       snapshot = { ...snapshot, presentation_revision: snapshot.presentation_revision + 1 };
@@ -154,13 +159,17 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
         presentation_requested: null };
       return command === "choose_browser" ? { snapshot, warning: null } : snapshot;
     }
-    if (command === "replace_rules") return { ...snapshot, rules: args.rules };
+    if (command === "replace_rules") {
+      snapshot = { ...snapshot, rules: args.rules };
+      listeners.get("browsefork-rules-changed")?.();
+      return snapshot;
+    }
     return undefined;
   };
   const context = {
     document,
     navigator: { platform: "MacIntel" },
-    window: { __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
+    window: { location: { href: windowRole ? `tauri://localhost/index.html?view=${windowRole}` : "tauri://localhost/" }, __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
     HTMLElement: FakeElement,
     URL,
     requestAnimationFrame: (callback) => { if (framesEnabled) callback(); },
@@ -460,6 +469,70 @@ test("opening Preferences refreshes its presentation revision before layout", as
   assert.equal(layout.presentationRevision, 2);
   assert.equal(layout.settings, true);
   assert.equal(app.$("settings-view").hidden, false);
+});
+
+test("saving, toggling and deleting a rule keeps Settings active while a link is waiting", async () => {
+  const app = chooser();
+  await settle();
+  app.$("switcher-settings").click();
+  app.$("rule-source-app").value = "";
+  app.$("rule-mode").value = "host";
+  app.$("rule-pattern").value = "rule-edit.invalid";
+  app.$("rule-browser").value = "safari";
+  app.$("rule-form").dispatch("submit", { preventDefault() {} });
+  await settle();
+  const assertSettings = () => {
+    assert.equal(app.$("settings-view").hidden, false);
+    assert.equal(app.$("chooser-view").hidden, true);
+    assert.equal(app.calls.filter((call) => call.command === "set_picker_layout").at(-1).args.settings, true);
+    assert.equal(app.getSnapshot().pending_url, "https://ya.ru/private/page");
+  };
+  assertSettings();
+  assert.equal(app.getSnapshot().rules.length, 1);
+  app.$("rules-list").children[0].children[1].children[2].click();
+  await settle();
+  assertSettings();
+  assert.equal(app.getSnapshot().rules[0].enabled, false);
+  app.$("rules-list").children[0].children[1].children[4].click();
+  await settle();
+  assertSettings();
+  assert.equal(app.getSnapshot().rules.length, 0);
+});
+
+test("macOS chooser hands Settings to its dedicated window without changing chooser decorations", async () => {
+  const app = chooser({ windowRole: "chooser" });
+  await settle();
+  app.$("switcher-settings").click();
+  await settle();
+  assert.equal(app.calls.filter((call) => call.command === "set_view").at(-1).args.settings, true);
+  assert.equal(app.$("settings-view").hidden, true);
+  assert.equal(await app.readyToPresent(app.getSnapshot().presentation_revision), false);
+  app.setSnapshot({ ...app.getSnapshot(), presentation_requested: false, presentation_revision: 3 });
+  await settle();
+  assert.equal(app.$("chooser-view").hidden, false);
+  assert.equal(app.$("settings-view").hidden, true);
+});
+
+test("dedicated macOS Settings stays a Settings page across rule saves and returns links to the chooser", async () => {
+  const capabilities = JSON.parse(fs.readFileSync(path.join(__dirname, "../src-tauri/capabilities/default.json"), "utf8"));
+  assert.ok(capabilities.windows.includes("settings"), "Settings must be allowed to subscribe to app events");
+  const app = chooser({ windowRole: "settings" });
+  await settle();
+  app.setSnapshot({ ...app.getSnapshot(), presentation_requested: true, presentation_revision: 2 }, "browsefork-open-preferences");
+  await settle();
+  assert.equal(app.$("settings-view").hidden, false);
+  assert.equal(app.$("chooser-view").hidden, true);
+  app.$("rule-mode").value = "host";
+  app.$("rule-pattern").value = "dedicated-settings.invalid";
+  app.$("rule-browser").value = "safari";
+  app.$("rule-form").dispatch("submit", { preventDefault() {} });
+  await settle();
+  assert.equal(app.$("settings-view").hidden, false);
+  assert.equal(app.calls.filter((call) => call.command === "set_picker_layout").at(-1).args.settings, true);
+  app.$("settings-toggle").click();
+  await settle();
+  assert.equal(app.calls.filter((call) => call.command === "set_view").at(-1).args.settings, false);
+  assert.equal(app.$("settings-view").hidden, true);
 });
 
 test("choosing a browser sends the current URL and requested rule", async () => {

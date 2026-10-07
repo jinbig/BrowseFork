@@ -1,3 +1,5 @@
+#[cfg(all(feature = "gui-tests", target_os = "macos"))]
+mod gui_probe;
 mod platform;
 
 #[cfg(not(target_os = "android"))]
@@ -156,18 +158,32 @@ mod presentation_tests {
 }
 
 #[cfg(not(target_os = "android"))]
+fn window_label(settings: bool) -> &'static str {
+    if cfg!(target_os = "macos") && settings {
+        "settings"
+    } else {
+        "main"
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 fn window_inactive_payload(app: &AppHandle) -> Option<WindowInactive> {
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
-            let state = app.state::<AppState>();
-            let presentation = state.presentation.lock().unwrap();
-            return Some(WindowInactive {
+    let state = app.state::<AppState>();
+    let (settings, inactive) = {
+        let presentation = state.presentation.lock().unwrap();
+        (
+            presentation.rendered_settings?,
+            WindowInactive {
                 expected_revision: presentation.rendered_revision,
                 expected_url: presentation.rendered_url.clone(),
-            });
-        }
+            },
+        )
+    };
+    let window = app.get_webview_window(window_label(settings))?;
+    if !window.is_visible().unwrap_or(false) {
+        return None;
     }
-    None
+    Some(inactive)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "android")))]
@@ -264,18 +280,23 @@ fn set_window_layout(
     content_height: Option<f64>,
     content_width: Option<f64>,
 ) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(window_label(settings)) {
         let current_settings = app.state::<AppState>().settings.lock().unwrap().clone();
+        #[cfg(target_os = "macos")]
         let switcher = !settings;
+        #[cfg(not(target_os = "macos"))]
         let decorated = settings;
+        #[cfg(not(target_os = "macos"))]
         if window.is_decorated().ok() != Some(decorated) {
             if let Err(error) = window.set_decorations(decorated) {
                 eprintln!("BrowseFork: could not update window decorations: {error}");
             }
         }
         #[cfg(target_os = "macos")]
-        if let Err(error) = platform::style_picker_window(&window, switcher) {
-            eprintln!("BrowseFork: could not update picker corners: {error}");
+        if !settings {
+            if let Err(error) = platform::style_picker_window(&window, switcher) {
+                eprintln!("BrowseFork: could not update picker corners: {error}");
+            }
         }
         let size = if settings {
             current_settings
@@ -309,7 +330,7 @@ fn save_preferences_window_size(app: &AppHandle) {
     if state.presentation.lock().unwrap().rendered_settings != Some(true) {
         return;
     }
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_webview_window(window_label(true)) else {
         return;
     };
     if !window.is_visible().unwrap_or(false) {
@@ -364,7 +385,7 @@ fn present_window(app: &AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
-extern "C" fn macos_presentation_is_current(revision: u64) -> bool {
+fn macos_view_is_current(revision: u64, settings: bool) -> bool {
     let Some(app) = MACOS_APP.get() else {
         return false;
     };
@@ -373,6 +394,17 @@ extern "C" fn macos_presentation_is_current(revision: u64) -> bool {
     presentation.revision == revision
         && presentation.rendered_revision == revision
         && presentation.requested_settings.is_some()
+        && presentation.rendered_settings == Some(settings)
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn macos_settings_is_current(revision: u64) -> bool {
+    macos_view_is_current(revision, true)
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn macos_chooser_is_current(revision: u64) -> bool {
+    macos_view_is_current(revision, false)
 }
 
 fn request_window(app: &AppHandle, settings: bool) {
@@ -389,7 +421,11 @@ fn request_window(app: &AppHandle, settings: bool) {
         presentation.rendered_url = None;
     }
     drop(presentation);
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "macos")]
+    if let Some(other) = app.get_webview_window(window_label(!settings)) {
+        let _ = other.hide();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "android")))]
     if changing_view {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
@@ -415,8 +451,10 @@ fn dismiss_native_window(app: &AppHandle) {
         eprintln!("BrowseFork: could not dismiss Android picker: {error}");
     }
     #[cfg(not(target_os = "android"))]
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
+    for label in [window_label(false), window_label(true)] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.hide();
+        }
     }
     #[cfg(target_os = "android")]
     let _ = app;
@@ -553,6 +591,16 @@ fn handle_android_event(app: &AppHandle, event: platform::android::NativeEvent) 
             *app.state::<AppState>().startup_error.lock().unwrap() = Some(message);
             show_preferences(app);
         }
+    }
+}
+
+#[tauri::command(async)]
+fn set_view(app: AppHandle, settings: bool) {
+    request_window(&app, settings);
+    if settings {
+        let _ = app.emit("browsefork-open-preferences", ());
+    } else {
+        notify(&app);
     }
 }
 
@@ -700,12 +748,19 @@ fn dismiss_window(
 #[tauri::command(async)]
 fn set_picker_layout(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     presentation_revision: u64,
     settings: bool,
     displayed_url: Option<String>,
     content_height: Option<f64>,
     content_width: Option<f64>,
 ) {
+    #[cfg(target_os = "macos")]
+    if window.label() != window_label(settings) {
+        return;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
     #[cfg(target_os = "android")]
     {
         let state = app.state::<AppState>();
@@ -730,35 +785,61 @@ fn set_picker_layout(
             save_preferences_window_size(&app);
         }
         let state = app.state::<AppState>();
+        let Some(window) = app.get_webview_window(window_label(settings)) else {
+            return;
+        };
+        // Window queries synchronously dispatch to AppKit. Never hold an app
+        // mutex here: a queued native paint callback can need that same mutex.
+        let visible = window.is_visible().unwrap_or(false);
         let mut presentation = state.presentation.lock().unwrap();
         if presentation.revision != presentation_revision {
             return;
         }
         let requested_settings = presentation.requested_settings;
-        let Some(window) = app.get_webview_window("main") else {
-            return;
-        };
-        let visible = window.is_visible().unwrap_or(false);
         if !visible && requested_settings != Some(settings) {
             return;
         }
-        let new_presentation = presentation.rendered_revision != presentation_revision;
-        if should_apply_window_layout(settings, visible, presentation.rendered_settings) {
-            set_window_layout(&app, settings, content_height, content_width);
-        }
+        let new_presentation = presentation.rendered_revision != presentation_revision
+            || presentation.rendered_settings != Some(settings);
+        let apply_layout =
+            should_apply_window_layout(settings, visible, presentation.rendered_settings);
         presentation.rendered_settings = Some(settings);
         presentation.rendered_revision = presentation_revision;
         presentation.rendered_url = if settings { None } else { displayed_url };
         drop(presentation);
+        if apply_layout {
+            set_window_layout(&app, settings, content_height, content_width);
+        }
+        #[cfg(all(feature = "gui-tests", target_os = "macos"))]
+        if gui_probe::active() {
+            // Exercise the real main-thread callback without revealing or
+            // activating the isolated test application's hidden windows.
+            let _ = window.with_webview(move |_| {
+                macos_settings_is_current(presentation_revision);
+            });
+            return;
+        }
         #[cfg(target_os = "macos")]
         if !visible || new_presentation {
             if let Err(error) = platform::present_rendered_window(
                 &window,
                 presentation_revision,
                 settings,
-                macos_presentation_is_current,
+                if settings {
+                    macos_settings_is_current
+                } else {
+                    macos_chooser_is_current
+                },
             ) {
                 eprintln!("BrowseFork: could not prepare window presentation: {error}");
+            }
+        } else if settings {
+            if let Err(error) = platform::refresh_settings_after_render(
+                &window,
+                presentation_revision,
+                macos_settings_is_current,
+            ) {
+                eprintln!("BrowseFork: could not refresh Settings title bar: {error}");
             }
         }
         #[cfg(not(target_os = "macos"))]
@@ -781,7 +862,8 @@ fn replace_rules(
     save_settings(&state.settings_path, &settings)?;
     *state.settings.lock().unwrap() = settings;
     *state.startup_error.lock().unwrap() = None;
-    notify(&app);
+    // Editing rules updates data without requesting a switch back to the chooser.
+    let _ = app.emit("browsefork-rules-changed", ());
     Ok(snapshot(&state))
 }
 
@@ -816,6 +898,12 @@ pub fn run() {
     let app = builder
         .setup(|app| {
             let settings_path = app.path().app_config_dir()?.join("settings.json");
+            #[cfg(all(feature = "gui-tests", target_os = "macos"))]
+            let settings_path = if gui_probe::active() {
+                gui_probe::settings_path()
+            } else {
+                settings_path
+            };
             let (settings, startup_error) = match load_settings(&settings_path) {
                 Ok(settings) => (settings, None),
                 Err(error) => (Settings::default(), Some(error)),
@@ -854,6 +942,30 @@ pub fn run() {
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 let _ = MACOS_APP.set(app.handle().clone());
+                let settings_builder = tauri::WebviewWindowBuilder::new(
+                    app,
+                    "settings",
+                    tauri::WebviewUrl::App("index.html?view=settings".into()),
+                )
+                .title("BrowseFork Settings")
+                .visible(false)
+                .decorations(true)
+                .inner_size(SETTINGS_WINDOW_SIZE.width, SETTINGS_WINDOW_SIZE.height)
+                .min_inner_size(MIN_PICKER_WIDTH, MIN_PICKER_HEIGHT)
+                .resizable(true);
+                #[cfg(all(feature = "gui-tests", target_os = "macos"))]
+                let settings_builder = if gui_probe::active() {
+                    settings_builder
+                        .initialization_script(include_str!("../../tests/tauri-settings-probe.js"))
+                } else {
+                    settings_builder
+                };
+                settings_builder.build()?;
+                #[cfg(all(feature = "gui-tests", target_os = "macos"))]
+                if gui_probe::active() {
+                    gui_probe::setup(app.handle());
+                    return Ok(());
+                }
                 platform::install_url_handler(macos_receive_url);
                 platform::install_deactivation_handler(macos_app_deactivated);
             }
@@ -874,6 +986,7 @@ pub fn run() {
             skip_link,
             dismiss_window,
             set_picker_layout,
+            set_view,
             replace_rules,
             request_default_browser
         ])
@@ -893,6 +1006,8 @@ pub fn run() {
     }
 
     app.run(|app, event| match event {
+        #[cfg(all(feature = "gui-tests", target_os = "macos"))]
+        tauri::RunEvent::Ready if gui_probe::active() => {}
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Ready
             if platform::was_default_launch()
@@ -943,4 +1058,10 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(all(feature = "gui-tests", target_os = "macos"))]
+pub fn run_gui_regression() {
+    gui_probe::enable();
+    run();
 }

@@ -17,3 +17,5 @@
 /src-tauri/gen/android/build/
 /.android-tools/
 .DS_Store
+
+/.gui-tools/

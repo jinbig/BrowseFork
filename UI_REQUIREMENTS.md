@@ -11,6 +11,10 @@ precedence; update this document when an agreed requirement changes.
   startup, link handling, choosing a browser, and opening Settings.
 - **Only Settings/Preferences has the native close, minimize, and zoom buttons.**
   All three must be visibly painted and clickable, as in a normal macOS window.
+  Adding, editing, toggling, reordering, or deleting rules must keep them visible
+  and must not switch Settings back to the chooser. On macOS, Settings uses a
+  permanently titled native window separate from the frameless chooser; its
+  title-bar style must never be toggled as part of chooser presentation.
 - The browser chooser is frameless: no native title bar, traffic-light
   buttons, app-name header, or large branding area.
 - Opening BrowseFork normally must provide access to Settings, or restore a

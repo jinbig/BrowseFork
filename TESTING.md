@@ -2,6 +2,66 @@
 
 The expected interface behavior is defined in [UI_REQUIREMENTS.md](UI_REQUIREMENTS.md).
 
+## Fast GUI gate (required after GUI changes)
+
+```sh
+npm run test:gui
+npm run test:gui:status
+```
+
+The gate runs all fast GUI suites in parallel: JS interaction regressions, real
+WebKit tests of the actual HTML/CSS/JS, Rust rules/window tests, and macOS native
+presentation/discovery tests. On macOS it also creates its own offscreen native
+Settings window and checks actual title-bar button bitmaps before and after a real
+WebKit content update. It does not activate other apps, capture the user's desktop,
+launch real browsers, or change production settings. Native probes are cached by
+source, compiler, SDK override, architecture, and OS version.
+
+The browser tests cover compact layout/icon clipping, host-only display, keyboard
+and expanded Save choice navigation, full URL forwarding, repeated-link selection,
+rule add/edit/reorder/toggle/delete, validation, many browsers, and Android layout.
+The Tauri IPC backend is simulated for these browser tests; the native probe uses
+real AppKit/WebKit and the production native presentation code, not the complete
+Tauri application. Native window factory/activation changes therefore still need
+an installed-app check.
+
+The macOS gate also builds a feature-gated `gui-regression` executable and runs
+the real Tauri event loop, production interface, unmocked IPC, and native validity
+callbacks together. It repeatedly clicks Delete while layout requests overlap,
+checks the remaining rule identities, and verifies that the final deletion was
+saved to disk. Windows stay hidden; native presentation is replaced with the
+production main-thread validity callback to avoid desktop activation. It uses a
+unique temporary settings directory and cannot change production rules or links.
+`npm run test:gui:tauri` runs this integration check alone. Its 20-second process
+timeout fails deadlocks instead of waiting forever. The old layout lock order
+was confirmed to fail this test; the corrected lock scope passes. The full gate
+now includes incremental Rust compilation for this extra test, so the first run
+after backend changes takes longer than the browser-only tests.
+
+First-time setup (WebKit downloads into ignored `.gui-tools/browsers`):
+
+```sh
+npm install
+npm run test:gui:install
+```
+
+For automatic reruns while editing:
+
+```sh
+npm run test:gui:watch
+```
+
+Runs are debounced and serialized. `npm run test:gui:webkit` runs just the browser
+suite for debugging, but is not the full completion gate. A standalone partial
+suite cannot replace the full gate.
+
+Reports are at `target/gui-tests/latest.json`; browser failure screenshots and
+traces are at `target/gui-tests/browser-results`. The status command checks the
+report against a fingerprint of current GUI/backend/test/config/dependency files
+and fails if sources changed after the test run. No automatic test retries hide
+intermittent failures. Run the full gate after the final relevant edit, and report
+any live desktop checks that remain blocked rather than treating them as passed.
+
 ## Automated checks
 
 Run these from the repository root:
@@ -55,6 +115,7 @@ Use the installed, signed app and a disposable URL or local HTML file. Observe b
 | Click another app while the chooser is visible | The chooser closes and the displayed link is skipped. Other queued links remain available when BrowseFork is reopened. |
 | Click another app while Preferences is visible | Preferences closes without removing a waiting link or changing saved rules. |
 | Select a browser while another link is queued | Opening the browser does not skip the next queued link. |
+| Add a rule in Settings, then toggle, reorder, edit, and delete it | Settings stays in its dedicated native window, its three native title-bar buttons remain visibly painted, the window size is unchanged, and any waiting link is retained. |
 | Enable Save choice, then save a host rule | The rule appears in Preferences and a second matching link opens silently. |
 | Open a link from Slack and select “This app” in Save choice | The source app is shown by name; a second link matching the rule opens in the selected browser. Repeat after quitting and relaunching BrowseFork. |
 | Add a rule with a source app and an empty URL pattern | Any supported URL from that app follows the rule; the same URL from another app does not. |

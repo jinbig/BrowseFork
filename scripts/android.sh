@@ -31,9 +31,20 @@ case "$operation" in
     fi
     exec "$repo_dir/node_modules/.bin/tauri" android init "$@" ;;
   build|dev|run) exec "$repo_dir/node_modules/.bin/tauri" android "$operation" "$@" ;;
+  release-local)
+    "$repo_dir/node_modules/.bin/tauri" android build --target aarch64 --apk "$@"
+    mkdir -p target/android
+    # Local testing only: preserve compatibility with existing debug installs.
+    "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+      --ks "$ANDROID_USER_HOME/debug.keystore" --ks-key-alias androiddebugkey \
+      --ks-pass pass:android --key-pass pass:android \
+      --out target/android/BrowseFork-0.1.0-arm64.apk \
+      src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+    echo "Optimized local-testing APK: target/android/BrowseFork-0.1.0-arm64.apk"
+    ;;
   gradle) cd src-tauri/gen/android; exec ./gradlew "$@" ;;
   sdkmanager|avdmanager) exec "$ANDROID_HOME/cmdline-tools/latest/bin/$operation" "$@" ;;
   adb) exec "$ANDROID_HOME/platform-tools/adb" "$@" ;;
   emulator) exec "$ANDROID_HOME/emulator/emulator" "$@" ;;
-  *) echo "Usage: scripts/android.sh {init|build|dev|run|gradle|sdkmanager|avdmanager|adb|emulator} [arguments]" ;;
+  *) echo "Usage: scripts/android.sh {init|build|release-local|dev|run|gradle|sdkmanager|avdmanager|adb|emulator} [arguments]" ;;
 esac

@@ -129,8 +129,13 @@ pub fn dismiss() -> Result<(), String> {
     Ok(())
 }
 
-pub fn present() -> Result<(), String> {
-    call::<serde_json::Value>("present", ())?;
+pub fn present(settings: bool, revision: u64) -> Result<(), String> {
+    call::<serde_json::Value>(
+        "present",
+        serde_json::json!({
+            "settings": settings, "revision": revision
+        }),
+    )?;
     Ok(())
 }
 

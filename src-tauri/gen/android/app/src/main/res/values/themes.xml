@@ -1,6 +1,29 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.browsefork" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowAnimationStyle">@style/BrowseForkNoAnimation</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+    <!-- An explicit animation resource also covers bringing an existing task
+         forward. A null window animation style can fall back to system slides. -->
+    <style name="BrowseForkNoAnimation">
+        <item name="android:windowEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:windowExitAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:activityOpenEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:activityOpenExitAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:activityCloseEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:activityCloseExitAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskOpenEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskOpenExitAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskCloseEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskCloseExitAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskToFrontEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskToFrontExitAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskToBackEnterAnimation">@anim/browsefork_no_animation</item>
+        <item name="android:taskToBackExitAnimation">@anim/browsefork_no_animation</item>
     </style>
 </resources>

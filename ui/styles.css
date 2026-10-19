@@ -7,6 +7,9 @@
 
 * { box-sizing: border-box; }
 body { min-height: 100vh; margin: 0; background: #f5f6f9; }
+/* The initial document has no chosen view yet. Never paint Settings' light
+   background or branding before the first complete snapshot is rendered. */
+body:not(.view-ready) { visibility: hidden; background: transparent; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
@@ -116,9 +119,9 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .mobile-android .primary-button, .mobile-android .quiet-button { min-height: 44px; font-size: 14px; }
 .android-setup { margin-bottom: 20px; padding: 16px; border: 1px solid #dfe3eb; border-radius: 12px; background: white; font-size: 14px; line-height: 1.5; }
 .android-setup p { margin: 0 0 12px; }
-.mobile-android.chooser-mode { min-height: 100dvh; }
-.mobile-android.picker-switcher { overflow: auto; border-radius: 0; }
-.mobile-android.picker-switcher .shell { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; }
+.mobile-android.chooser-mode { min-height: 0; height: 100dvh; display: flex; align-items: center; justify-content: center; background: transparent; }
+.mobile-android.picker-switcher { overflow: hidden; border-radius: 0; }
+.mobile-android.picker-switcher .shell { width: min(420px, calc(100% - 32px)); max-height: calc(100dvh - 32px); min-height: 0; margin: 0; padding: 12px 16px; overflow: auto; border-radius: 24px; background: #1c2229; }
 .mobile-android.picker-switcher #browser-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); overflow: visible; gap: 12px; padding: 8px 0; margin-bottom: 12px; }
 .mobile-android.picker-switcher .browser-button { min-height: 108px; padding: 12px 4px; }
 .mobile-android.picker-switcher #browser-list .browser-button:first-child,

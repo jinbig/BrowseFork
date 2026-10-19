@@ -256,6 +256,7 @@ function render() {
   const inactiveMacPage = usesMacWindows() && snapshot.presentation_requested !== (pageRole === "settings");
   $("loading").hidden = !loading;
   if (loading || mobileDismissed || inactiveMacPage) {
+    document.body.classList.remove("view-ready");
     if (mobileDismissed || (usesMacWindows() && snapshot.presentation_requested === null)) {
       displayedUrl = null;
       selectedBrowserId = null;
@@ -337,19 +338,27 @@ function render() {
     selectedBrowserId = null;
     document.body.classList.remove("keyboard-navigation");
   }
-  renderRuleBrowserOptions();
-  renderSourceApps();
-  renderRules();
+  if (showingSettings) {
+    renderRuleBrowserOptions();
+    renderSourceApps();
+    renderRules();
+  }
+  document.body.classList.add("view-ready");
   updateLayout();
 }
 
-function updateLayout() {
+async function updateLayout() {
   const settings = settingsVisible();
+  const revision = snapshot.presentation_revision;
+  if (isAndroid()) {
+    const ready = await window.browseforkReadyToPresent(revision);
+    if (!ready || snapshot.presentation_revision !== revision || settingsVisible() !== settings) return;
+  }
   invoke("set_picker_layout", {
-    presentationRevision: snapshot.presentation_revision,
+    presentationRevision: revision,
     settings,
     displayedUrl: settings ? null : snapshot.pending_url,
-    contentHeight: settings || isAndroid() ? null : Math.ceil($("shell").scrollHeight),
+    contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
     contentWidth: settings || isAndroid() ? null : switcherWidth(snapshot.browsers.length)
   }).catch((error) => message(String(error)));
 }
@@ -563,9 +572,21 @@ window.browseforkReadyToPresent = async (revision) => {
   return true;
 };
 
-listen("browsefork-state-changed", () => {
-  showSettings = false;
-  refresh();
+function applyPlatformUpdate(payload, resetView = false) {
+  if (payload?.platform === "android") {
+    if (snapshot && payload.presentation_revision < snapshot.presentation_revision) return;
+    if (resetView) showSettings = false;
+    ++refreshToken; // Do not let an older in-flight snapshot overwrite this push.
+    snapshot = payload;
+    render();
+  } else {
+    if (resetView) showSettings = false;
+    refresh();
+  }
+}
+
+listen("browsefork-state-changed", (event) => {
+  applyPlatformUpdate(event?.payload, true);
 });
 listen("browsefork-open-preferences", () => {
   if (usesMacWindows() && pageRole !== "settings") return;
@@ -573,6 +594,6 @@ listen("browsefork-open-preferences", () => {
   refresh();
 });
 listen("browsefork-window-inactive", ({ payload }) => dismissWindow(payload));
-listen("browsefork-platform-changed", refresh);
+listen("browsefork-platform-changed", (event) => applyPlatformUpdate(event?.payload));
 listen("browsefork-rules-changed", refresh);
 refresh();

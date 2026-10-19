@@ -270,7 +270,13 @@ fn snapshot(state: &AppState) -> Snapshot {
 }
 
 fn notify(app: &AppHandle) {
+    #[cfg(not(target_os = "android"))]
     let _ = app.emit("browsefork-state-changed", ());
+    #[cfg(target_os = "android")]
+    let _ = app.emit(
+        "browsefork-state-changed",
+        &snapshot(&app.state::<AppState>()),
+    );
 }
 
 #[cfg(not(target_os = "android"))]
@@ -544,7 +550,10 @@ fn handle_android_event(app: &AppHandle, event: platform::android::NativeEvent) 
             is_default_browser,
         } => {
             platform::android::update_state(browsers, source_apps, is_default_browser);
-            let _ = app.emit("browsefork-platform-changed", ());
+            let _ = app.emit(
+                "browsefork-platform-changed",
+                &snapshot(&app.state::<AppState>()),
+            );
         }
         NativeEvent::Link { url, source_app_id } => {
             receive_url(app, &url, source_app_id.as_deref())
@@ -576,7 +585,10 @@ fn handle_android_event(app: &AppHandle, event: platform::android::NativeEvent) 
         }
         NativeEvent::Ready => {
             platform::android::mark_ready();
-            let _ = app.emit("browsefork-platform-changed", ());
+            let _ = app.emit(
+                "browsefork-platform-changed",
+                &snapshot(&app.state::<AppState>()),
+            );
         }
         NativeEvent::Back => {
             let state = app.state::<AppState>();
@@ -773,7 +785,7 @@ fn set_picker_layout(
             presentation.rendered_revision = presentation_revision;
             presentation.rendered_url = if settings { None } else { displayed_url };
             drop(presentation);
-            if let Err(error) = platform::android::present() {
+            if let Err(error) = platform::android::present(settings, presentation_revision) {
                 eprintln!("BrowseFork: could not present Android content: {error}");
             }
         }

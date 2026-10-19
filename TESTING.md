@@ -89,6 +89,18 @@ exercises a real Android emulator with a separate capture-only browser; it refus
 physical phones and resets only its two emulator test apps. The shared Rust and UI
 checks above also cover queue serialization and mobile presentation. A physical
 phone and its actual messaging/authentication apps still need acceptance testing.
+The Android native tests additionally cover stable transparent host bounds and
+icon-cache invalidation. Real WebKit tests cover compact rounded popup sizing
+versus full-screen Settings. Emulator checks assert the source window
+stays visible, Save choice resizes the chooser, and opening Settings preserves the
+link. Screenshots are written to `target/android/gui/` for visual inspection.
+`npm run test:android-startup` adds actual first-frame size and cold/warm
+timing checks on a disposable emulator clone. It records the full transition over
+a dark sender and checks every decoded video frame for a white full-screen flash,
+including frames before the chooser appears. A WebKit test also delays the first
+snapshot and checks that the initial page is hidden and transparent. See
+ANDROID.md for setup. Use the
+optimized local APK for phone performance checks and the debug APK for CDP tests.
 
 ## macOS acceptance checklist
 

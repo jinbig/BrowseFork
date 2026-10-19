@@ -1,5 +1,20 @@
 const { test, expect } = require("./fixture.cjs");
 
+test("slow Android cold start stays transparent until the intended view is rendered", async ({ page, launch }) => {
+  const opening = launch({ platform: "android", deferSnapshot: true });
+  await page.waitForFunction(() => typeof window.__gui?.releaseSnapshot === "function");
+  expect(await page.locator("body").evaluate(element => ({
+    background: getComputedStyle(element).backgroundColor,
+    visibility: getComputedStyle(element).visibility,
+  }))).toEqual({ background: "rgba(0, 0, 0, 0)", visibility: "hidden" });
+  await expect(page.locator("#topbar")).toBeHidden();
+  await page.evaluate(() => window.__gui.releaseSnapshot());
+  await opening;
+  await expect(page.locator("body")).toHaveClass(/view-ready/);
+  await expect(page.locator("#topbar")).toBeHidden();
+  expect(await page.locator("body").evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+});
+
 test("compact chooser shows only the host and fits three sharp icons", async ({ page, launch }) => {
   await launch();
   await expect(page.locator("#topbar")).toBeHidden();
@@ -105,6 +120,30 @@ test("Android touch viewport has readable labels and no horizontal overflow", as
   }));
   expect(layout.overflow).toBe(false);
   expect(layout.icons).toEqual([64, 64, 64]);
+  const compactHeight = await page.locator("#shell").evaluate(element => element.scrollHeight);
+  expect(compactHeight).toBeLessThan(400);
+  const compactLayout = await page.evaluate(() => window.__gui.calls.filter(call => call.command === "set_picker_layout").at(-1));
+  expect(compactLayout.args.contentHeight).toBe(compactHeight);
   await page.getByLabel("Save choice", { exact: true }).check();
   await expect(page.locator("#save-rule-fields").getByLabel("Pattern", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__gui.calls.filter(call => call.command === "set_picker_layout").at(-1).args.contentHeight)).toBeGreaterThan(compactHeight);
+});
+
+test("Android popup stays inside a small screen and Settings fills the same viewport", async ({ page, launch }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await launch({ platform: "android", browserCount: 12 });
+  const popup = await page.locator("#shell").boundingBox();
+  expect(popup.x).toBeGreaterThanOrEqual(16);
+  expect(popup.y).toBeGreaterThanOrEqual(16);
+  expect(popup.width).toBe(328);
+  expect(popup.height).toBeLessThanOrEqual(608);
+  expect(await page.locator("body").evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+  expect(await page.locator("#shell").evaluate(element => getComputedStyle(element).borderRadius)).toBe("24px");
+  await page.getByLabel("Save choice", { exact: true }).check();
+  const expanded = await page.locator("#shell").boundingBox();
+  expect(expanded.height).toBeLessThanOrEqual(608);
+  await page.locator("#switcher-settings").click();
+  await expect(page.locator("#settings-view")).toBeVisible();
+  expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width: 360, height: 640 });
+  expect((await page.locator("#shell").boundingBox()).width).toBe(360);
 });

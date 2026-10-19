@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.ResolveInfo
+import android.content.pm.PackageInfo
 import android.net.Uri
 import org.junit.Assert.*
 import org.junit.Test
@@ -104,5 +105,28 @@ class BrowserRouterTest {
         val router = BrowserRouter(context)
         assertThrows(IllegalArgumentException::class.java) { router.launchIntent(context.packageName, "https://example.com/") }
         assertThrows(IllegalStateException::class.java) { router.launchIntent("missing.browser", "https://example.com/") }
+    }
+
+    @Test fun iconsSurviveProcessRestartsButPackageUpdatesInvalidateThem() {
+        val id = "cached.browser"
+        val installed = PackageInfo().apply {
+            packageName = id
+            applicationInfo = ApplicationInfo().apply { packageName = id; enabled = true }
+            lastUpdateTime = 10
+        }
+        val pm = shadowOf(context.packageManager)
+        pm.installPackage(installed)
+        pm.addResolveInfoForIntent(Intent(Intent.ACTION_VIEW, Uri.parse("https://$WEB_PROBE_HOST/"))
+            .addCategory(Intent.CATEGORY_BROWSABLE), browser(id))
+        val first = BrowserRouter(context).browsers().getJSONObject(0).getString("icon_data_url")
+        assertTrue(first.startsWith("data:image/png;base64,"))
+        // A fresh router simulates a restarted process; unchanged packages must
+        // use the persisted icon rather than load and rasterize it again.
+        val cache = context.getSharedPreferences("browser-icons", android.content.Context.MODE_PRIVATE)
+        cache.edit().putString("$id.icon", "cached-icon-sentinel").commit()
+        assertEquals("cached-icon-sentinel", BrowserRouter(context).browsers().getJSONObject(0).getString("icon_data_url"))
+        installed.lastUpdateTime = 20
+        pm.installPackage(installed)
+        assertNotEquals("cached-icon-sentinel", BrowserRouter(context).browsers().getJSONObject(0).getString("icon_data_url"))
     }
 }

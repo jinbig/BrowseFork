@@ -10,6 +10,10 @@ phone screens; the icon switcher is the only chooser interface.
 
 - Choose BrowseFork as the default browser to receive system HTTP/HTTPS links.
 - Matching rules open the selected browser automatically. Other links show the chooser.
+- The chooser is a compact rounded window over the source app. Save choice expands
+  it as needed; the gear opens full-screen Preferences. Returning to the link
+  restores the compact window and preserves the waiting links. This uses a normal
+  translucent Android activity and does not need overlay permission.
 - Save choice supports host, substring, regex, source app, or combined rules.
 - Opening the app from the launcher opens Preferences, or restores a waiting chooser.
 - Sharing text containing a web URL to BrowseFork also opens the chooser.
@@ -54,6 +58,18 @@ npm install
 rustup target add aarch64-linux-android
 npm run android:build
 ```
+
+For testing responsiveness on a phone, use the optimized local build:
+
+```sh
+npm run android:build:local
+```
+
+It produces `target/android/BrowseFork-0.1.0-arm64.apk`, signed with the same local
+development key as the debug build, so it can update that build without clearing
+rules. It is optimized and has WebView debugging disabled. This development-key
+package is for local testing, not Play Store distribution. Keep `android:build`
+for the debug APK needed by the emulator's CDP integration tests.
 
 The checked-in `src-tauri/gen/android` project contains the custom intent filters,
 inset handling, and build wiring. Do not overwrite it by regenerating a template.
@@ -109,8 +125,9 @@ npm run test:android-smoke
 ```
 
 The native unit tests cover URI preservation, shares, browser filtering, explicit
-package targeting, read grants, sender metadata, and missing browsers. UI tests cover
-mobile bootstrap, viewport sizing, save controls, and default browser requests.
+package targeting, read grants, sender metadata, missing browsers, icon-cache
+invalidation, and stable native host bounds. UI tests cover mobile bootstrap,
+compact popup layout, rounded corners, save controls, and default browser requests.
 
 The integration suite uses `emulator-5554` by default (override with
 `BROWSEFORK_ANDROID_SERIAL`). It refuses physical devices. It installs BrowseFork
@@ -119,3 +136,43 @@ changes the emulator's default browser role. Test Browser records links without
 visiting websites. The suite covers cold/warm/repeated links, native role requests,
 Back, actual chooser button clicks, saved rules, sender rules, other schemes, shares,
 and pending queue restoration after process death.
+It also checks compact chooser bounds, a visible source-app window behind it,
+Save choice expansion/collapse, and full-screen Settings/back-to-link transitions.
+Emulator screenshots are saved in `target/android/gui/`.
+
+## Startup and first-frame checks
+
+Browser/source-app discovery runs on a worker and is reused until a package or
+configuration change invalidates it. Native browser icons are cached across
+process restarts, keyed by the installed package update time and appearance.
+The native host stays full-screen and transparent. The shared UI sizes and rounds
+the compact chooser inside it, and fills it for Settings. Chooser content stays
+hidden until assets and the WebView frame are ready; there is no native resize
+or second measurement pass. The Activity hides the WebView before attachment,
+and the document stays transparent until its first complete view is rendered,
+so plugin startup cannot expose an initial white surface or Settings background.
+Android pushes ready snapshots directly to the UI,
+avoiding a get-snapshot round trip on each incoming link.
+
+For real cold/warm frame checks, use a disposable clone, leaving your interactive
+emulator alone. Start it in a separate terminal:
+
+```sh
+scripts/android.sh emulator -avd BrowseFork_API_36 -read-only -port 5556 -no-window -no-audio -no-snapshot -gpu swiftshader
+```
+
+Install either APK on `emulator-5556`, then run `npm run test:android-startup`.
+Build the capture-only sender first with `scripts/android.sh gradle :test-browser:assembleDebug`.
+The check requires Python Pillow and macOS's Swift/AVFoundation tools for video
+decoding, resets BrowseFork in that disposable emulator,
+and refuses the usual interactive emulator (`emulator-5554`) and physical phones.
+It measures fresh/cached stopped-process launches and warm launches from a steady
+dark source app, and fails if sampled visible chooser size changes after reveal.
+It also records the complete display transition with Android screenrecord and
+decodes every recorded frame to detect a white full-screen flash before the chooser.
+Positions are recorded separately because Android may adjust placement as
+system-bar insets settle.
+Reports, transition videos, decoded frames, and first-frame screenshots go to
+`target/android/startup/`. Timings
+include ADB/screenshot overhead; they are upper bounds and do not predict Samsung
+or Slack timings. Some cold-start cost remains from starting Android and WebView.

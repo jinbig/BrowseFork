@@ -3,10 +3,11 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const root = path.resolve(__dirname, "..");
-const directories = ["ui", "src-tauri/src", "src-tauri/capabilities", "crates/browsefork-core/src", "tests/gui"];
+const directories = ["ui", "src-tauri/src", "src-tauri/capabilities", "crates/browsefork-core/src", "tests/gui",
+  "crates/tauri-plugin-browsefork-android/android/src", "src-tauri/gen/android/app/src/main"];
 const files = ["package.json", "package-lock.json", "Cargo.toml", "Cargo.lock", "playwright.config.cjs", "UI_REQUIREMENTS.md", "AGENTS.md",
   "src-tauri/tauri.conf.json", "src-tauri/tauri.android.conf.json", "src-tauri/tauri.macos.conf.json", "src-tauri/Cargo.toml", "src-tauri/build.rs",
-  "tests/ui.test.cjs", "tests/macos-browser-discovery.test.cjs", "tests/macos-browser-discovery.m", "tests/macos-presentation.m", "tests/macos-rendering.m", "tests/tauri-settings.test.cjs", "tests/tauri-settings-probe.js", "scripts/gui-check.cjs"];
+  "tests/ui.test.cjs", "tests/android-smoke.cjs", "tests/android-startup.py", "tests/android-video-frames.swift", "scripts/android.sh", "tests/macos-browser-discovery.test.cjs", "tests/macos-browser-discovery.m", "tests/macos-presentation.m", "tests/macos-rendering.m", "tests/tauri-settings.test.cjs", "tests/tauri-settings-probe.js", "scripts/gui-check.cjs"];
 const reportPath = path.join(root, "target/gui-tests/latest.json");
 const WATCH_DEBOUNCE_MS = 300;
 function inputs() {

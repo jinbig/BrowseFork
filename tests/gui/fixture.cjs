@@ -10,8 +10,8 @@ const test = base.extend({
       if (url.hostname !== "browsefork.test" || !file) return route.fulfill({ status: 404, body: "" });
       return route.fulfill({ contentType: file.endsWith("js") ? "text/javascript" : file.endsWith("css") ? "text/css" : "text/html", body: fs.readFileSync(path.join(ui, file)) });
     });
-    await use(async ({ role = "chooser", platform = "macos", browserCount = 3 } = {}) => {
-      await page.addInitScript(({ role, platform, browserCount }) => {
+    await use(async ({ role = "chooser", platform = "macos", browserCount = 3, deferSnapshot = false } = {}) => {
+      await page.addInitScript(({ role, platform, browserCount, deferSnapshot }) => {
         const names = ["Brave Browser", "Google Chrome", "Safari"];
         const browsers = Array.from({ length: browserCount }, (_, index) => {
           const name = names[index] || `Browser ${index + 1}`;
@@ -42,7 +42,10 @@ const test = base.extend({
           event: { listen(name, fn) { listeners.set(name, [...(listeners.get(name) || []), fn]); return Promise.resolve(() => {}); } },
           core: { async invoke(command, args) {
             calls.push({ command, args, selectedAtCall: document.getElementById("selected-browser")?.textContent });
-            if (command === "get_snapshot") return structuredClone(state);
+            if (command === "get_snapshot") {
+              if (deferSnapshot) await new Promise(resolve => { window.__gui.releaseSnapshot = resolve; });
+              return structuredClone(state);
+            }
             if (command === "set_picker_layout" || command === "request_default_browser") return;
             if (command === "set_view") {
               state = { ...state, presentation_requested: args.settings, presentation_revision: state.presentation_revision + 1 };
@@ -63,7 +66,7 @@ const test = base.extend({
             throw new Error(`Unexpected GUI command: ${command}`);
           } },
         };
-      }, { role, platform, browserCount });
+      }, { role, platform, browserCount, deferSnapshot });
       await page.goto(`http://browsefork.test/index.html?view=${role}`);
       await expect(page.locator(role === "settings" ? "#settings-view" : "#chooser-view")).toBeVisible();
     });

@@ -79,6 +79,14 @@ function launcher() {
   adb("shell", "am", "start", "-n", component, "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER");
 }
 
+function capture(name) {
+  const result = spawnSync(path.join(root, "scripts/android.sh"), ["adb", "-s", serial, "exec-out", "screencap", "-p"], { cwd: root, timeout: 20000 });
+  assert.equal(result.status, 0, "Could not capture emulator test screen");
+  const output = path.join(root, "target/android/gui");
+  fs.mkdirSync(output, { recursive: true });
+  fs.writeFileSync(path.join(output, `${name}.png`), result.stdout);
+}
+
 test("Android emulator: native links, picker, saved rules, Back, shares, and process restoration", {
   skip: process.env.BROWSEFORK_ANDROID_SMOKE !== "1", timeout: 180000,
 }, async (t) => {
@@ -93,10 +101,14 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
   adb("install", "-r", fixture);
   adb("shell", "pm", "clear", appId);
   adb("shell", "pm", "clear", browserId);
+  // Clearing app data does not revoke Android's browser role. Start from a
+  // known non-BrowseFork default so the native role prompt is actually tested.
+  adb("shell", "cmd", "role", "add-role-holder", "android.app.role.BROWSER", browserId);
   launcher();
   let client = await connectWebview();
   t.after(() => { client.close(); adb("forward", "--remove", "tcp:9229"); });
   await until(async () => (await client.snapshot()).ready, "native bootstrap");
+  let settingsViewport;
   const stage = async (name, callback) => {
     let failure;
     await t.test(name, async () => { try { await callback(); } catch (error) { failure = error; throw error; } });
@@ -110,6 +122,7 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
     assert.ok(state.browsers.some((browser) => browser.id === browserId && browser.icon_data_url.startsWith("data:image/png;base64,")));
     assert.ok(state.browsers.every((browser) => browser.id !== appId));
     assert.equal(await client.evaluate("document.getElementById('settings-view').hidden"), false);
+    settingsViewport = await client.evaluate("({ width: innerWidth, height: innerHeight })");
   });
 
   await stage("native default browser request offers BrowseFork and the role can be assigned", async () => {
@@ -120,7 +133,14 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
       return xml.includes("BrowseFork") && xml.includes("Test Browser") && xml;
     }, "system browser role dialog");
     assert.match(ui, /BrowseFork/);
-    adb("shell", "input", "keyevent", "4");
+    // Use the actual dialog control. A Back event during its opening animation
+    // can reach the translucent activity behind it and leave the dialog alive.
+    const cancel = ui.match(/<node\b[^>]*text="Cancel"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+    assert.ok(cancel, "Browser role dialog has a Cancel button");
+    adb("shell", "input", "tap", String(Math.round((Number(cancel[1]) + Number(cancel[3])) / 2)),
+      String(Math.round((Number(cancel[2]) + Number(cancel[4])) / 2)));
+    await until(() => !adb("shell", "dumpsys", "window", "windows").split(/\n  Window #\d+/)
+      .some(block => /^.*RequestRoleActivity/.test(block) && block.includes("isOnScreen=true")), "role dialog dismissed");
     adb("shell", "cmd", "role", "add-role-holder", "android.app.role.BROWSER", appId);
     assert.equal(adb("shell", "cmd", "role", "get-role-holders", "android.app.role.BROWSER"), appId);
   });
@@ -133,6 +153,7 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
     openLink(first);
     client = await connectWebview();
     await until(async () => (await client.snapshot()).pending_url === first, "cold link");
+    await until(async () => (await client.evaluate("document.getElementById('shell').getBoundingClientRect().height")) < settingsViewport.height * 0.8, "cold link uses compact native window");
     const beforeRepeat = (await client.snapshot()).presentation_revision;
     openLink(first);
     await until(async () => {
@@ -148,6 +169,33 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
     await until(async () => (await client.snapshot()).pending_url === first, "Back skips only the newest link");
     launcher();
     await until(async () => !(await client.evaluate("document.getElementById('chooser-view').hidden")), "restored older chooser");
+  });
+
+  await stage("compact chooser overlays the current app; Settings fills the screen and returns to the same link", async () => {
+    adb("shell", "am", "start", "-a", "android.settings.SETTINGS");
+    openLink(first);
+    await until(async () => (await client.snapshot()).presentation_requested === false &&
+      (await client.evaluate("document.getElementById('shell').getBoundingClientRect().height")) < settingsViewport.height * 0.8, "compact chooser over Settings");
+    const compact = await client.evaluate("(() => { const shell = document.getElementById('shell'); const rect = shell.getBoundingClientRect(); return { width: rect.width, height: rect.height, content: shell.scrollHeight }; })()");
+    assert.ok(compact.width < settingsViewport.width, "Chooser leaves the source app visible at its sides");
+    assert.ok(compact.content <= compact.height + 1, "Typical chooser content fits without vertical scrolling");
+    const windows = adb("shell", "dumpsys", "window", "windows");
+    const source = windows.split(/\n  Window #\d+/).find(block => /^.*com\.android\.settings/.test(block));
+    assert.ok(source?.includes("isOnScreen=true"), "Source app window remains visible behind the chooser");
+    capture("compact-chooser");
+    await client.evaluate("document.getElementById('save-choice').click()");
+    await until(async () => (await client.evaluate("document.getElementById('shell').getBoundingClientRect().height")) > compact.height + 100, "Save choice expands the native window");
+    capture("save-choice-expanded");
+    await client.evaluate("document.getElementById('save-choice').click()");
+    await until(async () => (await client.evaluate("document.getElementById('shell').getBoundingClientRect().height")) <= compact.height + 1, "Save choice collapses the native window");
+    await client.evaluate("document.getElementById('switcher-settings').click()");
+    await until(async () => !(await client.evaluate("document.getElementById('settings-view').hidden")) &&
+      (await client.evaluate("innerHeight")) === settingsViewport.height, "full-screen Settings");
+    assert.equal((await client.snapshot()).pending_url, first);
+    capture("full-screen-settings");
+    await client.evaluate("document.getElementById('settings-toggle').click()");
+    await until(async () => !(await client.evaluate("document.getElementById('chooser-view').hidden")) &&
+      (await client.evaluate("document.getElementById('shell').getBoundingClientRect().height")) < settingsViewport.height * 0.8, "compact chooser restored");
   });
 
   await stage("touch Save choice persists a host rule and forwards the full URL", async () => {
@@ -168,6 +216,18 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
     await until(async () => await client.evaluate("document.getElementById('save-card').hidden"), "unsupported rule controls hidden");
     await client.evaluate("document.querySelector('button[title=\"Test Browser\"]').click()");
     await until(() => adb("shell", "run-as", browserId, "cat", "files/last-url.txt") === url, "custom URI forwarding");
+  });
+
+  await stage("a matching saved rule also routes silently after the process is stopped", async () => {
+    client.close();
+    adb("shell", "am", "force-stop", appId);
+    const url = "https://route.invalid/automatic-after-stop";
+    openLink(url);
+    await until(() => adb("shell", "run-as", browserId, "cat", "files/last-url.txt") === url, "cold rule dispatch uses discovered browsers");
+    client = await connectWebview();
+    const state = await client.snapshot();
+    assert.equal(state.pending_count, 0);
+    assert.equal(state.presentation_requested, null);
   });
 
   await stage("source app rules apply only when the incoming intent provides that sender", async () => {
@@ -200,6 +260,9 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
     }, "queue restoration");
     assert.equal(state.pending_url, "https://queue.invalid/newer");
     assert.ok(state.rules.some((rule) => rule.pattern === "route.invalid"));
+    // Rust can restore its queue before the WebView has consumed the ready
+    // event. Wait for the actual newest chooser before sending a UI action.
+    await until(async () => await client.evaluate("!document.getElementById('chooser-view').hidden && document.getElementById('pending-host').textContent === 'queue.invalid'"), "restored queue rendered in chooser");
     await client.evaluate("document.getElementById('skip-link').click()");
     await until(async () => (await client.snapshot()).pending_url === "https://share.invalid/a", "skip preserves older share");
   });

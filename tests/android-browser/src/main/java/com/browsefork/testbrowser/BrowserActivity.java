@@ -21,6 +21,9 @@ public class BrowserActivity extends Activity {
 
     private void capture(Intent intent) {
         TextView view = new TextView(this);
+        // A dark sender makes even one white startup frame visible in recordings.
+        view.setBackgroundColor(android.graphics.Color.BLACK);
+        view.setTextColor(android.graphics.Color.WHITE);
         view.setText("BrowseFork test browser: link received");
         view.setTextSize(20);
         view.setPadding(24, 64, 24, 24);

@@ -102,6 +102,14 @@ precedence; update this document when an agreed requirement changes.
   language and platform integration isolated in native modules.
 - Android adapts the same chooser and rule editor to touch and the phone viewport.
   Desktop window decorations and Dock requirements apply to macOS, not Android.
+- On Android, the chooser is a compact, rounded window centered over the current
+  app, which remains visible behind it. Settings occupies the full screen.
+  Expanding Save choice resizes the chooser; tall content remains scrollable.
+  Showing either view must preserve the current link and waiting queue.
+- The Android chooser must appear at its final size on both stopped-process and
+  later launches. Establish its viewport, remeasure wrapped content, and finish
+  the native frame while hidden; do not visibly shrink it after opening.
+  Reuse unchanged browser discovery/icons and keep package scans off the UI thread.
 - Use Android Back to dismiss the chooser or Settings appropriately. Backgrounding
   Android preserves waiting links; it does not apply desktop focus-loss cancellation.
 - Provide Android's native default-browser setup from Settings.

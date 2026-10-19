@@ -117,6 +117,16 @@ internal class BrowserRouter(private val context: Context) {
     fun opened(url: String) { contentIntents.remove(url) }
 
     private fun icon(info: ResolveInfo): String {
+        // Reuse the rasterized icon across process restarts, but validate it
+        // against the installed package and appearance before using it.
+        val packageName = info.activityInfo.packageName
+        val packageInfo = pm.getPackageInfo(packageName, 0)
+        val configuration = context.resources.configuration
+        val stamp = "${packageInfo.lastUpdateTime}:${configuration.uiMode}:${configuration.densityDpi}:${configuration.locales.toLanguageTags()}:$BROWSER_ICON_PIXELS"
+        val cache = context.getSharedPreferences("browser-icons", Context.MODE_PRIVATE)
+        if (cache.getString("$packageName.stamp", null) == stamp) {
+            cache.getString("$packageName.icon", null)?.let { return it }
+        }
         val drawable = info.loadIcon(pm)
         val bitmap = Bitmap.createBitmap(BROWSER_ICON_PIXELS, BROWSER_ICON_PIXELS, Bitmap.Config.ARGB_8888)
         drawable.setBounds(0, 0, bitmap.width, bitmap.height)
@@ -124,6 +134,8 @@ internal class BrowserRouter(private val context: Context) {
         val bytes = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, bytes)
         bitmap.recycle()
-        return "data:image/png;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+        val result = "data:image/png;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)
+        cache.edit().putString("$packageName.stamp", stamp).putString("$packageName.icon", result).apply()
+        return result
     }
 }

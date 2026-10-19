@@ -166,10 +166,11 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
     }
     return undefined;
   };
+  const windowHandlers = new Map();
   const context = {
     document,
     navigator: { platform: "MacIntel" },
-    window: { location: { href: windowRole ? `tauri://localhost/index.html?view=${windowRole}` : "tauri://localhost/" }, __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
+    window: { addEventListener: (name, callback) => windowHandlers.set(name, callback), location: { href: windowRole ? `tauri://localhost/index.html?view=${windowRole}` : "tauri://localhost/" }, __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
     HTMLElement: FakeElement,
     URL,
     requestAnimationFrame: (callback) => { if (framesEnabled) callback(); },
@@ -186,9 +187,10 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
     },
     getSnapshot() { return snapshot; },
     readyToPresent(revision) { return context.window.browseforkReadyToPresent(revision); },
-    setSnapshot(value, event = "browsefork-state-changed") {
+    resize() { windowHandlers.get("resize")?.(); },
+    setSnapshot(value, event = "browsefork-state-changed", push = false) {
       snapshot = value;
-      listeners.get(event)();
+      listeners.get(event)({ payload: push ? value : null });
     },
     inactive(payload = { expected_revision: snapshot.presentation_revision,
       expected_url: document.getElementById("chooser-view").hidden ? null : snapshot.pending_url }) {
@@ -199,6 +201,22 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+test("Android pushes ready link snapshots without another IPC and ignores older pushes", async () => {
+  const app = chooser({ platform: "android" });
+  await settle();
+  const original = app.getSnapshot();
+  const reads = app.calls.filter(call => call.command === "get_snapshot").length;
+  const next = { ...original, pending_url: "https://fast-push.invalid/", suggested_pattern: "fast-push.invalid",
+    presentation_revision: original.presentation_revision + 1 };
+  app.setSnapshot(next, "browsefork-state-changed", true);
+  await settle();
+  assert.equal(app.$("pending-host").textContent, "fast-push.invalid");
+  assert.equal(app.calls.filter(call => call.command === "get_snapshot").length, reads);
+  app.setSnapshot(original, "browsefork-state-changed", true);
+  await settle();
+  assert.equal(app.$("pending-host").textContent, "fast-push.invalid");
+});
+
 test("Android waits for its native bootstrap before presenting any screen", async () => {
   const app = chooser({ platform: "android", ready: false });
   await settle();
@@ -208,7 +226,7 @@ test("Android waits for its native bootstrap before presenting any screen", asyn
   assert.equal(app.calls.some((call) => call.command === "set_picker_layout"), false);
 });
 
-test("Android uses the native viewport, hides keyboard hints, and keeps save choice", async () => {
+test("Android requests compact content height, hides keyboard hints, and keeps save choice", async () => {
   const app = chooser({ platform: "android" });
   await settle();
   assert.equal(app.document.body.classList.contains("mobile-android"), true);
@@ -216,7 +234,7 @@ test("Android uses the native viewport, hides keyboard hints, and keeps save cho
   assert.equal(app.$("save-card").hidden, false);
   const layout = app.calls.find((call) => call.command === "set_picker_layout");
   assert.equal(layout.args.contentWidth, null);
-  assert.equal(layout.args.contentHeight, null);
+  assert.equal(layout.args.contentHeight, app.$("shell").scrollHeight);
   const buttons = app.$("browser-list").querySelectorAll("button");
   assert.equal(buttons[0].children.some((child) => child.textContent === "Ctrl+1" || child.textContent === "⌘1"), false);
   app.$("save-choice").click();
@@ -224,6 +242,24 @@ test("Android uses the native viewport, hides keyboard hints, and keeps save cho
   buttons[0].click();
   await settle();
   assert.equal(app.calls.find((call) => call.command === "choose_browser").args.saveRule.pattern, "ya.ru");
+});
+
+test("Android sizes its shared popup without a native resize IPC loop", async () => {
+  const app = chooser({ platform: "android" });
+  await settle();
+  app.$("shell").scrollHeight = 360;
+  app.$("save-choice").click();
+  await settle();
+  assert.equal(app.calls.filter(call => call.command === "set_picker_layout").at(-1).args.contentHeight, 360);
+  app.$("switcher-settings").click();
+  await settle();
+  const settings = app.calls.filter(call => call.command === "set_picker_layout").at(-1);
+  assert.equal(settings.args.settings, true);
+  assert.equal(settings.args.contentHeight, null);
+  const before = app.calls.length;
+  app.resize();
+  await settle();
+  assert.equal(app.calls.length, before);
 });
 
 test("Android Preferences requests the browser role through the native command", async () => {

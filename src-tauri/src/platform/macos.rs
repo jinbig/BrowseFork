@@ -1,6 +1,13 @@
 use super::{Browser, SourceApp};
 use std::ffi::{c_char, c_void, CStr, CString};
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 use tauri::WebviewWindow;
+
+const BROWSER_CACHE_LIFETIME: Duration = Duration::from_secs(5);
+static BROWSER_CACHE: Mutex<Option<(Instant, Vec<Browser>)>> = Mutex::new(None);
 
 extern "C" {
     fn browsefork_capture_delegate_urls() -> bool;
@@ -12,6 +19,12 @@ extern "C" {
     fn browsefork_list_browsers() -> *mut c_char;
     fn browsefork_list_source_apps() -> *mut c_char;
     fn browsefork_open_url(app_path: *const c_char, url: *const c_char) -> bool;
+    fn browsefork_open_profile(
+        app_path: *const c_char,
+        url: *const c_char,
+        user_data: *const c_char,
+        profile: *const c_char,
+    ) -> bool;
     fn browsefork_free_string(value: *mut c_char);
     fn browsefork_style_picker_window(window: *mut c_void, switcher: bool);
     fn browsefork_refresh_settings_after_render(
@@ -101,13 +114,24 @@ pub fn refresh_settings_after_render(
 }
 
 pub fn list_browsers() -> Result<Vec<Browser>, String> {
+    if let Some((time, browsers)) = BROWSER_CACHE.lock().unwrap().as_ref() {
+        if time.elapsed() < BROWSER_CACHE_LIFETIME {
+            return Ok(browsers.clone());
+        }
+    }
+    // Native discovery/rasterization runs outside the cache lock: AppKit can
+    // dispatch to its main thread. Profile metadata is refreshed by the shared
+    // reader on every request; only installed browser identities/icons are cached.
     let raw = unsafe { browsefork_list_browsers() };
     if raw.is_null() {
         return Err("macOS could not list URL handlers".into());
     }
     let value = unsafe { CStr::from_ptr(raw).to_string_lossy().into_owned() };
     unsafe { browsefork_free_string(raw) };
-    serde_json::from_str(&value).map_err(|error| format!("Invalid browser list: {error}"))
+    let browsers: Vec<Browser> =
+        serde_json::from_str(&value).map_err(|error| format!("Invalid browser list: {error}"))?;
+    *BROWSER_CACHE.lock().unwrap() = Some((Instant::now(), browsers.clone()));
+    Ok(browsers)
 }
 
 pub fn list_source_apps() -> Vec<SourceApp> {
@@ -121,8 +145,35 @@ pub fn list_source_apps() -> Vec<SourceApp> {
 }
 
 pub fn open_url(browser: &Browser, url: &str) -> Result<(), String> {
-    let app_path = CString::new(browser.id.as_str()).map_err(|_| "Invalid browser path")?;
+    let installed_id = browser
+        .launch_profile
+        .as_ref()
+        .map(|profile| profile.browser_id.as_str())
+        .unwrap_or(&browser.id);
+    let app_path = CString::new(installed_id).map_err(|_| "Invalid browser path")?;
     let url = CString::new(url).map_err(|_| "Invalid URL")?;
+    if let Some(profile) = &browser.launch_profile {
+        profile.arguments()?; // Recheck deletion before Chrome could create a new profile.
+        let root = CString::new(profile.user_data_dir.to_string_lossy().as_bytes())
+            .map_err(|_| "Invalid profile root")?;
+        let directory =
+            CString::new(profile.directory.as_str()).map_err(|_| "Invalid profile directory")?;
+        return if unsafe {
+            browsefork_open_profile(
+                app_path.as_ptr(),
+                url.as_ptr(),
+                root.as_ptr(),
+                directory.as_ptr(),
+            )
+        } {
+            Ok(())
+        } else {
+            Err(format!(
+                "macOS could not open this link in {}",
+                browser.name
+            ))
+        };
+    }
     if unsafe { browsefork_open_url(app_path.as_ptr(), url.as_ptr()) } {
         Ok(())
     } else {

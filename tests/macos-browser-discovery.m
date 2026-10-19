@@ -50,7 +50,32 @@ int main(void) {
         check(browsefork_unique_browser_urls(@[self, choosy, missing, installed], directories, nil).count == 1, @"Self, other choosers, and stale missing apps must be excluded");
         check(browsefork_unique_browser_urls(@[installed], directories, installed).count == 0, @"The current bundle path must be excluded");
         check(browsefork_unique_browser_urls(@[update], directories, nil).count == 1, @"A browser outside Applications must remain usable if it is the only copy");
+        // Exercise the real profile launcher with a capture-only executable.
+        // No real browser or production profile is opened or modified.
+        NSString *fixturePath = [applications stringByAppendingPathComponent:@"Profile Capture.app"];
+        NSURL *fixture = makeBrowser(fixturePath, @"com.browsefork.ProfileCapture");
+        NSString *contents = [fixturePath stringByAppendingPathComponent:@"Contents"];
+        NSString *executableDirectory = [contents stringByAppendingPathComponent:@"MacOS"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:executableDirectory withIntermediateDirectories:YES attributes:nil error:NULL];
+        NSMutableDictionary *fixtureInfo = [NSMutableDictionary dictionaryWithContentsOfFile:[contents stringByAppendingPathComponent:@"Info.plist"]];
+        fixtureInfo[@"CFBundleExecutable"] = @"capture";
+        [fixtureInfo writeToFile:[contents stringByAppendingPathComponent:@"Info.plist"] atomically:YES];
+        NSString *capture = [root stringByAppendingPathComponent:@"arguments.txt"];
+        NSString *script = [NSString stringWithFormat:@"#!/bin/sh\nprintf '%%s\\n' \"$@\" > '%@'\n", capture];
+        NSString *executable = [executableDirectory stringByAppendingPathComponent:@"capture"];
+        [script writeToFile:executable atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        [[NSFileManager defaultManager] setAttributes:@{NSFilePosixPermissions:@0755} ofItemAtPath:executable error:NULL];
+        NSString *userData = [root stringByAppendingPathComponent:@"Chrome User Data"];
+        [[NSFileManager defaultManager] createDirectoryAtPath:[userData stringByAppendingPathComponent:@"Profile 2"] withIntermediateDirectories:YES attributes:nil error:NULL];
+        NSString *url = @"https://example.invalid/auth?q=a%2Bb&literal=pipe|value&quote=\"quoted\"#fragment";
+        check(browsefork_open_profile(fixture.path.UTF8String, url.UTF8String, userData.UTF8String, "Profile 2"), @"Native profile launch must start successfully");
+        for (int attempt = 0; attempt < 100 && ![[NSFileManager defaultManager] fileExistsAtPath:capture]; attempt++) [NSThread sleepForTimeInterval:0.01];
+        NSString *arguments = [NSString stringWithContentsOfFile:capture encoding:NSUTF8StringEncoding error:NULL];
+        NSString *expected = [NSString stringWithFormat:@"--user-data-dir=%@\n--profile-directory=Profile 2\n--\n%@\n", userData, url];
+        check([arguments isEqualToString:expected], @"Profile launch must preserve spaces, flags, and the entire URL as literal arguments");
+        check(!browsefork_open_profile(fixture.path.UTF8String, url.UTF8String, userData.UTF8String, "Deleted"), @"Deleted profiles must fail without creating a profile or opening another account");
         [[NSFileManager defaultManager] removeItemAtPath:root error:NULL];
         puts("9 browser discovery regression cases passed");
+        puts("2 native profile launch regression cases passed");
     }
 }

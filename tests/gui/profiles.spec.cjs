@@ -1,0 +1,42 @@
+const { test, expect } = require("./fixture.cjs");
+
+test("named Chrome profiles show initials, fit icons, and route the exact selected profile", async ({ page, launch }, testInfo) => {
+  await page.setViewportSize({ width: 400, height: 460 });
+  await launch({ platform: testInfo.project.name === "webkit" ? "macos" : "windows", profileNames: ["A", "S"] });
+  const a = page.getByRole("button", { name: "Google Chrome · A", exact: true });
+  const s = page.getByRole("button", { name: "Google Chrome · S", exact: true });
+  await expect(a.locator(".browser-profile-label")).toHaveText("A");
+  await expect(s.locator(".profile-badge")).toHaveText("S");
+  const layout = await page.evaluate(() => {
+    const strip = document.getElementById("browser-list").getBoundingClientRect();
+    return [...document.querySelectorAll(".has-profile")].map(button => {
+      const icon = button.querySelector(".browser-icon").getBoundingClientRect();
+      const label = button.querySelector(".browser-profile-label").getBoundingClientRect();
+      const badge = button.querySelector(".profile-badge").getBoundingClientRect();
+      return icon.left >= strip.left && badge.right <= strip.right && badge.bottom <= label.top && label.bottom <= strip.bottom;
+    });
+  });
+  expect(layout).toEqual([true, true]);
+  const iconTops = await page.locator(".browser-icon").evaluateAll(icons => icons.map(icon => icon.getBoundingClientRect().top));
+  expect(Math.max(...iconTops) - Math.min(...iconTops)).toBeLessThanOrEqual(1);
+  await page.keyboard.press("Tab"); await page.keyboard.press("Tab"); await page.keyboard.press("Tab");
+  await expect(s).toBeFocused();
+  await expect(page.locator("#selected-browser")).toHaveText("Google Chrome · S");
+  await page.getByLabel("Save choice", { exact: true }).check();
+  await testInfo.attach("profiles", { body: await page.screenshot(), contentType: "image/png" });
+  await s.click();
+  await expect.poll(() => page.evaluate(() => window.__gui.calls.find(call => call.command === "choose_browser")?.args.browserId)).toBe("chrome-profile-1");
+  await page.evaluate(() => window.__gui.nextLink("https://another.invalid/"));
+  await expect(page.locator("#selected-browser")).toHaveText("Google Chrome · S");
+});
+
+test("Settings names and saves explicit profiles without inventing work or personal categories", async ({ page, launch }) => {
+  await page.setViewportSize({ width: 680, height: 760 });
+  await launch({ platform: "windows", role: "settings", profileNames: ["A", "S"] });
+  await expect(page.locator("#rule-browser option")).toHaveText(["Brave Browser", "Google Chrome · A", "Google Chrome · S", "Safari"]);
+  await page.locator("#rule-browser").selectOption("chrome-profile-1");
+  await page.locator("#rule-pattern").fill("profile.invalid");
+  await page.getByRole("button", { name: "Save rule", exact: true }).click();
+  await expect(page.locator(".rule-row")).toContainText("Google Chrome · S");
+  expect(await page.evaluate(() => window.__gui.state().rules[0].browser_id)).toBe("chrome-profile-1");
+});

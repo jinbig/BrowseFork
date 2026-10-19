@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "windows:build": "tauri build --target x86_64-pc-windows-msvc --bundles nsis",
+    "test:windows-smoke": "node --test tests/windows-smoke.cjs",
     "android:init": "bash scripts/android.sh init --skip-targets-install",
     "android:dev": "bash scripts/android.sh dev",
     "android:build": "bash scripts/android.sh build --target aarch64 --apk --debug",

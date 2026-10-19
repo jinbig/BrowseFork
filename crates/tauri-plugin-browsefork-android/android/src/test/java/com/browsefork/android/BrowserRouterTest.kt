@@ -129,4 +129,26 @@ class BrowserRouterTest {
         pm.installPackage(installed)
         assertNotEquals("cached-icon-sentinel", BrowserRouter(context).browsers().getJSONObject(0).getString("icon_data_url"))
     }
+
+    @Test fun googleAccountsDoNotBecomeUnsupportedChromeDestinations() {
+        val accounts = shadowOf(android.accounts.AccountManager.get(context))
+        accounts.addAccount(android.accounts.Account("A", "com.google"))
+        accounts.addAccount(android.accounts.Account("S", "com.google"))
+        val id = "com.android.chrome"
+        val pm = shadowOf(context.packageManager)
+        pm.installPackage(PackageInfo().apply {
+            packageName = id
+            applicationInfo = ApplicationInfo().apply { packageName = id; enabled = true }
+        })
+        pm.addResolveInfoForIntent(Intent(Intent.ACTION_VIEW, Uri.parse("https://$WEB_PROBE_HOST/"))
+            .addCategory(Intent.CATEGORY_BROWSABLE), browser(id))
+        register(id)
+        val router = BrowserRouter(context)
+        val destinations = router.browsers()
+        assertEquals(1, destinations.length())
+        assertEquals(id, destinations.getJSONObject(0).getString("id"))
+        val intent = router.launchIntent(id, "https://example.invalid/")
+        assertEquals(id, intent.`package`)
+        assertTrue(intent.extras == null || intent.extras!!.isEmpty)
+    }
 }

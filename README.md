@@ -1,10 +1,14 @@
 # BrowseFork
 
-BrowseFork receives links from macOS and Android and opens each one in a browser you choose. Rules can send matching links to a browser automatically; unmatched links show a compact picker.
+Chrome profiles on macOS/Windows appear as separate destinations with their
+names and avatar/initial badges. See [PROFILES.md](PROFILES.md) for rule behaviour
+and Android account/work-profile limitations.
+
+BrowseFork receives links from macOS, Windows, and Android and opens each one in a browser you choose. Rules can send matching links to a browser automatically; unmatched links show a compact picker.
 
 The agreed interface and window behavior is recorded in [UI_REQUIREMENTS.md](UI_REQUIREMENTS.md). Read it before changing the chooser, Settings, Dock visibility, or keyboard interaction.
 
-The routing engine and the HTML/CSS/JavaScript interface are shared. Android uses a small native Kotlin bridge for intents and browser discovery. See [ANDROID.md](ANDROID.md) for the APK, installation, tool setup, and emulator tests. macOS integration is implemented in `src-tauri/src/platform/macos.m` and `macos.rs`. Windows and Linux adapters are reserved in `src-tauri/src/platform/mod.rs` and currently return an explicit “not implemented” error.
+The routing engine and the HTML/CSS/JavaScript interface are shared. Android uses a small native Kotlin bridge for intents and browser discovery. See [ANDROID.md](ANDROID.md) for the APK, installation, tool setup, and emulator tests. macOS integration is implemented in `src-tauri/src/platform/macos.m` and `macos.rs`. Windows uses `src-tauri/src/platform/windows`; see [WINDOWS.md](WINDOWS.md) for installation, Default Apps, source-app limitations, and Windows verification. Linux integration is not implemented yet.
 
 ## Features
 
@@ -12,6 +16,7 @@ The routing engine and the HTML/CSS/JavaScript interface are shared. Android use
 - Ordered rules. The first enabled match wins.
 - A rule may match a source app, a URL pattern, or both. Leaving the app blank means any app; leaving the pattern blank means any supported URL. Both cannot be blank. Existing URL-only rules continue to work.
 - macOS identifies the source by the sender PID on the incoming Apple event and stores its bundle ID. When macOS does not provide a usable sender, app-specific rules do not match; URL-only rules still apply.
+- Windows discovers registered browsers in the per-user and both system registry views, deduplicates executable identities, and extracts native icons at 128 pixels. Repeated link launches go to a single running instance. Source-app matching uses the foreground executable as a best-effort hint; Windows does not supply a reliable sender for standard HTTP activation.
 - The window starts hidden. A matching rule opens its browser without showing BrowseFork; links that need a choice show the picker.
 - **Host:** `example.com` matches that host and its subdomains, but not `evil-example.com`.
 - **Contains:** case-insensitive text anywhere in the full URL.
@@ -66,4 +71,4 @@ For development, `npm run dev` runs the shared UI and Rust backend. Run `npm run
 
 The macOS bundle includes an App Sandbox entitlement, but a local unsigned build does not establish Mac App Store acceptance. Store distribution still needs your own Apple bundle identifier, signing and provisioning setup, and a test of the signed sandboxed app opening installed browsers. Change the provisional `com.browsefork.desktop` identifier before publishing.
 
-Windows and Linux need their own URL-handler registration, browser discovery, and launch adapters before those builds can serve as default link handlers.
+Windows has a per-user NSIS installer with HTTP/HTTPS and HTML registration. The user chooses its defaults in Windows Settings. Local unsigned test installers are not Microsoft Store packages. Linux still needs URL-handler registration, browser discovery, and launch adapters.

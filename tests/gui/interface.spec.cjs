@@ -35,6 +35,33 @@ test("compact chooser shows only the host and fits three sharp icons", async ({ 
   await expect(page.locator(".browser-button.is-selected")).toHaveCount(1);
 });
 
+test("Windows chooser keeps Settings in its own window and uses Ctrl shortcuts", async ({ page, launch }) => {
+  await launch({ platform: "windows" });
+  await expect(page.locator(".browser-shortcut").first()).toHaveText("Ctrl+1");
+  await page.keyboard.press("Control+2");
+  await expect.poll(() => page.evaluate(() => window.__gui.calls.find(call => call.command === "choose_browser")?.args.browserId)).toBe("browser-1");
+  await page.evaluate(() => window.__gui.nextLink("https://second.invalid/private?token=kept#fragment"));
+  await expect(page.locator("#selected-browser")).toHaveText("Google Chrome");
+  await page.locator("#switcher-settings").click();
+  await expect.poll(() => page.evaluate(() => window.__gui.calls.filter(call => call.command === "set_view").at(-1)?.args.settings)).toBe(true);
+  await expect(page.locator("#settings-view")).toBeHidden();
+});
+
+test("Windows Settings stays active while rules change and opens native Default Apps", async ({ page, launch }) => {
+  await page.setViewportSize({ width: 680, height: 760 });
+  await launch({ platform: "windows", role: "settings" });
+  await expect(page.locator("#make-default-browser")).toBeVisible();
+  await expect(page.locator("#rule-source-app")).toHaveAttribute("placeholder", /executable path/);
+  await page.locator("#rule-pattern").fill("windows-test.invalid");
+  await page.getByRole("button", { name: "Save rule", exact: true }).click();
+  await expect(page.locator(".rule-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "Delete rule", exact: true }).click();
+  await expect(page.locator(".rule-row")).toHaveCount(0);
+  await expect(page.locator("#settings-view")).toBeVisible();
+  await page.locator("#make-default-browser").click();
+  await expect.poll(() => page.evaluate(() => window.__gui.calls.some(call => call.command === "request_default_browser"))).toBe(true);
+});
+
 test("Tab reaches expanded Save choice controls and Escape never opens the link", async ({ page, launch }) => {
   await launch();
   await page.keyboard.press("Tab");

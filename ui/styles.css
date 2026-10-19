@@ -10,6 +10,11 @@ body { min-height: 100vh; margin: 0; background: #f5f6f9; }
 /* The initial document has no chosen view yet. Never paint Settings' light
    background or branding before the first complete snapshot is rendered. */
 body:not(.view-ready) { visibility: hidden; background: transparent; }
+/* Explicitly invalidate visibility on views revealed from display:none.
+   WebKit can retain their inherited startup visibility after the body changes. */
+body.view-ready #topbar,
+body.view-ready #chooser-view,
+body.view-ready #settings-view { visibility: visible; }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
@@ -82,6 +87,10 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .picker-switcher .browser-icon-fallback { width: 56px; height: 56px; }
 .picker-switcher .browser-icon-fallback { border-radius: 13px; background: #4559d8; color: white; font-size: 28px; }
 .picker-switcher .browser-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.picker-switcher.has-browser-profiles .browser-button { min-height: 94px; grid-template-rows: 56px 16px; row-gap: 5px; padding: 7px 4px 4px; }
+.browser-profile-label { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 16px; font-weight: 600; }
+.profile-badge { position: absolute; left: calc(50% + 7px); top: 43px; display: grid; place-items: center; width: 22px; height: 22px; object-fit: cover; border: 2px solid #1c2229; border-radius: 50%; background: #6779bd; color: white; font-size: 11px; font-weight: 700; }
+.picker-switcher.has-browser-profiles .browser-shortcut { top: 2px; right: 1px; bottom: auto; }
 .picker-switcher .browser-shortcut { position: absolute; right: 5px; bottom: 6px; display: block; padding: 1px 3px; border-radius: 4px; background: #172029e6; color: white; font-size: 10px; font-weight: 700; }
 .picker-switcher .selected-browser { margin: 2px 0 2px; color: #f7f8fa; font-size: 14px; font-weight: 700; }
 .picker-switcher .pending-host { max-width: 100%; margin: 0 0 8px; color: #e2e5e9; font-size: 12px; font-weight: 600; text-align: center; }
@@ -98,6 +107,23 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .picker-switcher .chooser-footer { margin-top: 2px; }
 .picker-switcher .chooser-footer .quiet-button { padding: 4px 6px; font-size: 11px; }
 .picker-switcher .chooser-footer .switcher-settings { margin-left: 0; font-size: 16px; line-height: 1; }
+.switcher-settings svg { display: block; }
+/* The Windows host and WebView2 are transparent, with native shadows disabled.
+   CSS owns the one antialiased edge; a native GDI region would cut it into steps. */
+.desktop-windows.chooser-mode.picker-switcher { background: transparent; }
+.desktop-windows.picker-switcher .shell {
+  background: #1c2229; border-radius: 24px; box-shadow: inset 0 0 0 1px #68717d80;
+}
+.desktop-windows .checkbox-row input {
+  appearance: none; flex: 0 0 16px; position: relative; margin: 0;
+  border: 1px solid #8e99a8; border-radius: 4px; background: #20272f;
+}
+.desktop-windows .checkbox-row input:checked { border-color: #8999ff; background: #6579ed; }
+.desktop-windows .checkbox-row input:checked::after {
+  content: ""; position: absolute; left: 4px; top: 1px;
+  width: 4px; height: 8px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.desktop-windows .checkbox-row input:focus-visible { outline: 2px solid #a9b4ff; outline-offset: 3px; }
 .picker-switcher .keyboard-hint { font-size: 10px; }
 .picker-switcher .message { border-color: #8d7543; background: #463b27; color: #fff1c8; }
 .picker-switcher .empty-state { color: #b8c1cc; }

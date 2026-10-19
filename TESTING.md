@@ -10,7 +10,7 @@ npm run test:gui:status
 ```
 
 The gate runs all fast GUI suites in parallel: JS interaction regressions, real
-WebKit tests of the actual HTML/CSS/JS, Rust rules/window tests, and macOS native
+WebKit/Chromium tests of the actual HTML/CSS/JS, Rust rules/window tests, and macOS native
 presentation/discovery tests. On macOS it also creates its own offscreen native
 Settings window and checks actual title-bar button bitmaps before and after a real
 WebKit content update. It does not activate other apps, capture the user's desktop,
@@ -38,7 +38,7 @@ was confirmed to fail this test; the corrected lock scope passes. The full gate
 now includes incremental Rust compilation for this extra test, so the first run
 after backend changes takes longer than the browser-only tests.
 
-First-time setup (WebKit downloads into ignored `.gui-tools/browsers`):
+First-time setup (WebKit and Chromium download into ignored `.gui-tools/browsers`):
 
 ```sh
 npm install
@@ -102,6 +102,19 @@ snapshot and checks that the initial page is hidden and transparent. See
 ANDROID.md for setup. Use the
 optimized local APK for phone performance checks and the debug APK for CDP tests.
 
+## Windows checks
+
+See [WINDOWS.md](WINDOWS.md) for native builds and the isolated real-WebView2 smoke
+test. The fast gate includes Windows GUI fixtures and portable command/identity
+tests on every host. Chromium pixel checks at 100%, 150%, and 200% display scales
+verify transparent antialiased chooser corners and aligned controls. On Windows
+the application smoke test compares the native frame/client/WebView bounds to
+detect white frame gutters. The Rust stage also exercises real registry
+fixtures, icon extraction, and hidden owner/native caption styles. Tests under
+Wine are compatibility checks, not verification of an installed Windows desktop
+app. The Windows smoke test is explicit, requires an unlocked Windows desktop,
+uses a separate app identity and synthetic rules/URLs, and never changes defaults.
+
 ## macOS acceptance checklist
 
 Use the installed, signed app and a disposable URL or local HTML file. Observe both the BrowseFork window and the destination browser. Test the first launch after quitting BrowseFork and a second launch while it is already running.
@@ -147,4 +160,4 @@ For authentication, run one real GlobalProtect sign-in after the harmless local 
 
 1. Expand the macOS smoke test to verify the chosen browser receives the exact URL. This needs a safe browser-side observation mechanism.
 2. Add a repeatable test of a real GlobalProtect sign-in on a developer machine; a synthetic HTML file does not prove the VPN flow works.
-3. Add Windows and Linux integration tests after their native adapters are implemented.
+3. Run the Windows application smoke test and installed-app transition/caption checks on real Windows 10/11. Linux integration still needs its native adapter and tests.

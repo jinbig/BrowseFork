@@ -378,6 +378,29 @@ char *browsefork_list_source_apps(void) {
     }
 }
 
+// Launch the Chrome executable so its singleton receives the profile arguments
+// even when Chrome is running. Launch Services' openURLs uses the last profile.
+bool browsefork_open_profile(const char *app_path, const char *url, const char *user_data, const char *profile) {
+    @autoreleasepool {
+        if (!app_path || !url || !user_data || !profile) return false;
+        NSString *path = [NSString stringWithUTF8String:app_path];
+        NSString *link = [NSString stringWithUTF8String:url];
+        NSString *root = [NSString stringWithUTF8String:user_data];
+        NSString *directory = [NSString stringWithUTF8String:profile];
+        NSURL *executable = [[NSBundle bundleWithPath:path] executableURL];
+        BOOL isDirectory = NO;
+        if (!link || !root || !directory || !executable ||
+            ![[NSFileManager defaultManager] fileExistsAtPath:[root stringByAppendingPathComponent:directory] isDirectory:&isDirectory] || !isDirectory) return false;
+        NSTask *task = [[NSTask alloc] init];
+        task.executableURL = executable;
+        task.arguments = @[[@"--user-data-dir=" stringByAppendingString:root],
+            [@"--profile-directory=" stringByAppendingString:directory], @"--", link];
+        task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
+        task.standardError = [NSFileHandle fileHandleWithNullDevice];
+        return [task launchAndReturnError:nil];
+    }
+}
+
 bool browsefork_open_url(const char *app_path, const char *url) {
     @autoreleasepool {
         if (!app_path || !url) return false;

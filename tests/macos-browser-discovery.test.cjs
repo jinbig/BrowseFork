@@ -31,7 +31,7 @@ function runNative(source, expectedOutput) {
   assert.match(result.stdout, expectedOutput);
 }
 test("macOS browser discovery deduplicates update copies by bundle ID", { skip: process.platform !== "darwin" }, () => {
-  runNative("macos-browser-discovery.m", /9 browser discovery regression cases passed/);
+  runNative("macos-browser-discovery.m", /9 browser discovery regression cases passed[\s\S]*2 native profile launch regression cases passed/);
 });
 test("macOS reveal and Settings repaint cancel stale callbacks without stealing focus", { skip: process.platform !== "darwin" }, () => {
   runNative("macos-presentation.m", /8 native presentation regression cases passed/);

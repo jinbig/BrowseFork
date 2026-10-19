@@ -10,14 +10,23 @@ const test = base.extend({
       if (url.hostname !== "browsefork.test" || !file) return route.fulfill({ status: 404, body: "" });
       return route.fulfill({ contentType: file.endsWith("js") ? "text/javascript" : file.endsWith("css") ? "text/css" : "text/html", body: fs.readFileSync(path.join(ui, file)) });
     });
-    await use(async ({ role = "chooser", platform = "macos", browserCount = 3, deferSnapshot = false } = {}) => {
-      await page.addInitScript(({ role, platform, browserCount, deferSnapshot }) => {
+    await use(async ({ role = "chooser", platform = "macos", browserCount = 3, deferSnapshot = false, profileNames = [] } = {}) => {
+      await page.addInitScript(({ role, platform, browserCount, deferSnapshot, profileNames }) => {
+        if (platform === "windows") Object.defineProperty(navigator, "platform", { get: () => "Win32" });
         const names = ["Brave Browser", "Google Chrome", "Safari"];
         const browsers = Array.from({ length: browserCount }, (_, index) => {
           const name = names[index] || `Browser ${index + 1}`;
           const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="20" fill="${["#e94b25", "#238de7", "#36b1ee"][index % 3]}"/><text x="48" y="65" text-anchor="middle" font-size="50" fill="white">${index + 1}</text></svg>`;
           return { id: `browser-${index}`, name, icon_data_url: `data:image/svg+xml,${encodeURIComponent(svg)}` };
         });
+        if (profileNames.length) {
+          const chrome = browsers[1];
+          browsers.splice(1, 1, ...profileNames.map((name, index) => ({
+            ...chrome, id: `chrome-profile-${index}`, name: `Google Chrome · ${name}`,
+            profile: { name, initials: [...name][0], avatar_data_url: null,
+              browser_id: chrome.id, browser_name: chrome.name },
+          })));
+        }
         let state = {
           platform, ready: true, presentation_revision: 1,
           presentation_requested: role === "settings", is_default_browser: false,
@@ -66,7 +75,7 @@ const test = base.extend({
             throw new Error(`Unexpected GUI command: ${command}`);
           } },
         };
-      }, { role, platform, browserCount, deferSnapshot });
+      }, { role, platform, browserCount, deferSnapshot, profileNames });
       await page.goto(`http://browsefork.test/index.html?view=${role}`);
       await expect(page.locator(role === "settings" ? "#settings-view" : "#chooser-view")).toBeVisible();
     });

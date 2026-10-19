@@ -152,7 +152,7 @@ mod tests {
         settings
             .add_rule(
                 MatchMode::Contains,
-                "file:///private/tmp/vpn/".into(),
+                "file:///C:/Temp/vpn/".into(),
                 "vpn-browser".into(),
             )
             .unwrap();
@@ -164,9 +164,9 @@ mod tests {
             }
         );
         assert_eq!(
-            route_link("file:///private/tmp/vpn/login.html", &settings),
+            route_link("file:///C:/Temp/vpn/login.html", &settings),
             LinkRoute::OpenWithRule {
-                url: "file:///private/tmp/vpn/login.html".into(),
+                url: "file:///C:/Temp/vpn/login.html".into(),
                 browser_id: "vpn-browser".into()
             }
         );

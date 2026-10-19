@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream
 import org.json.JSONArray
 
 internal const val BROWSER_ICON_PIXELS = 192
+internal const val BROWSER_ICON_CACHE_VERSION = 2
 internal const val WEB_PROBE_HOST = "browsefork.invalid"
 
 /** Never parse incoming intent:// strings as Android intents or execute their extras. */
@@ -122,12 +123,14 @@ internal class BrowserRouter(private val context: Context) {
         val packageName = info.activityInfo.packageName
         val packageInfo = pm.getPackageInfo(packageName, 0)
         val configuration = context.resources.configuration
-        val stamp = "${packageInfo.lastUpdateTime}:${configuration.uiMode}:${configuration.densityDpi}:${configuration.locales.toLanguageTags()}:$BROWSER_ICON_PIXELS"
+        val stamp = "$BROWSER_ICON_CACHE_VERSION:${packageInfo.lastUpdateTime}:${configuration.uiMode}:${configuration.densityDpi}:${configuration.locales.toLanguageTags()}:$BROWSER_ICON_PIXELS"
         val cache = context.getSharedPreferences("browser-icons", Context.MODE_PRIVATE)
         if (cache.getString("$packageName.stamp", null) == stamp) {
             cache.getString("$packageName.icon", null)?.let { return it }
         }
-        val drawable = info.loadIcon(pm)
+        // Android supplies its managed/work badge. Google accounts within Chrome
+        // are private to Chrome and are not separate ACTION_VIEW destinations.
+        val drawable = pm.getUserBadgedIcon(info.activityInfo.loadUnbadgedIcon(pm), android.os.Process.myUserHandle())
         val bitmap = Bitmap.createBitmap(BROWSER_ICON_PIXELS, BROWSER_ICON_PIXELS, Bitmap.Config.ARGB_8888)
         drawable.setBounds(0, 0, bitmap.width, bitmap.height)
         drawable.draw(Canvas(bitmap))

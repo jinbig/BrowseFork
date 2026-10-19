@@ -12,6 +12,14 @@ module.exports = defineConfig({
   expect: { timeout: 2000 },
   reporter: "list",
   outputDir: "target/gui-tests/browser-results",
+  projects: [
+    { name: "webkit", use: { browserName: "webkit" } },
+    ...[1, 1.5, 2].map(scale => ({
+      name: `windows-chromium-${scale * 100}pct`,
+      testMatch: ["**/windows-appearance.spec.cjs", "**/profiles.spec.cjs"],
+      use: { browserName: "chromium", deviceScaleFactor: scale },
+    })),
+  ],
   use: {
     browserName: "webkit",
     viewport: { width: 360, height: 460 },

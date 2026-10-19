@@ -6,8 +6,8 @@ const root = path.resolve(__dirname, "..");
 const directories = ["ui", "src-tauri/src", "src-tauri/capabilities", "crates/browsefork-core/src", "tests/gui",
   "crates/tauri-plugin-browsefork-android/android/src", "src-tauri/gen/android/app/src/main"];
 const files = ["package.json", "package-lock.json", "Cargo.toml", "Cargo.lock", "playwright.config.cjs", "UI_REQUIREMENTS.md", "AGENTS.md",
-  "src-tauri/tauri.conf.json", "src-tauri/tauri.android.conf.json", "src-tauri/tauri.macos.conf.json", "src-tauri/Cargo.toml", "src-tauri/build.rs",
-  "tests/ui.test.cjs", "tests/android-smoke.cjs", "tests/android-startup.py", "tests/android-video-frames.swift", "scripts/android.sh", "tests/macos-browser-discovery.test.cjs", "tests/macos-browser-discovery.m", "tests/macos-presentation.m", "tests/macos-rendering.m", "tests/tauri-settings.test.cjs", "tests/tauri-settings-probe.js", "scripts/gui-check.cjs"];
+  "src-tauri/tauri.conf.json", "src-tauri/tauri.android.conf.json", "src-tauri/tauri.macos.conf.json", "src-tauri/tauri.windows.conf.json", "src-tauri/windows/hooks.nsh", "src-tauri/Cargo.toml", "src-tauri/build.rs",
+  "tests/ui.test.cjs", "tests/windows-smoke.cjs", "tests/android-smoke.cjs", "tests/android-startup.py", "tests/android-video-frames.swift", "scripts/android.sh", "tests/macos-browser-discovery.test.cjs", "tests/macos-browser-discovery.m", "tests/macos-presentation.m", "tests/macos-rendering.m", "tests/tauri-settings.test.cjs", "tests/tauri-settings-probe.js", "scripts/gui-check.cjs"];
 const reportPath = path.join(root, "target/gui-tests/latest.json");
 const WATCH_DEBOUNCE_MS = 300;
 function inputs() {
@@ -53,11 +53,11 @@ async function run(mode = "all") {
   const sourceHash = fingerprint();
   let stages;
   if (mode === "browser") {
-    stages = [await stage("Real WebKit GUI", process.execPath, ["node_modules/@playwright/test/cli.js", "test"])];
+    stages = [await stage("Real WebKit and Chromium GUI", process.execPath, ["node_modules/@playwright/test/cli.js", "test"])];
   } else {
     stages = await Promise.all([
       stage("UI interaction regressions", process.execPath, ["--test", "tests/ui.test.cjs"]),
-      stage("Real WebKit GUI", process.execPath, ["node_modules/@playwright/test/cli.js", "test"]),
+      stage("Real WebKit and Chromium GUI", process.execPath, ["node_modules/@playwright/test/cli.js", "test"]),
       stage("Rust rules and window regressions", "cargo", ["test", "--workspace", "--quiet"]).then(async (rust) => {
         if (process.platform !== "darwin" || rust.status !== "passed") return rust;
         const native = await stage("Real Tauri Settings event loop", process.execPath, ["--test", "tests/tauri-settings.test.cjs"]);
@@ -75,7 +75,9 @@ async function run(mode = "all") {
     completedAt: new Date().toISOString(), durationMs: Math.round(performance.now() - started),
     nativePixelVerification: process.platform === "darwin"
       ? "Real Tauri Settings deletion/concurrent native callbacks and offscreen AppKit button bitmaps passed. Native factory/activation changes also require an installed-app check."
-      : "macOS native rendering not applicable on this host; verify it on macOS before claiming native UI fixes.", stages };
+      : process.platform === "win32"
+        ? "Windows registry, icon and ownership tests are included in the Rust stage. Installed-window appearance and transitions still require a live Windows check."
+        : "macOS native rendering not applicable on this host; verify it on macOS before claiming native UI fixes.", stages };
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
   console.log(`${passed ? "PASS" : "FAIL"} GUI gate: ${report.status}, ${(report.durationMs / 1000).toFixed(1)}s. Report: target/gui-tests/latest.json`);
@@ -111,8 +113,9 @@ async function watch() {
 (async () => {
   const mode = process.argv[2] || "all";
   if (mode === "install") {
-    const result = await stage("Install WebKit", process.execPath, ["node_modules/@playwright/test/cli.js", "install", "webkit"]);
-    process.exitCode = result.status === "passed" ? 0 : 1;
+    const webkit = await stage("Install WebKit", process.execPath, ["node_modules/@playwright/test/cli.js", "install", "webkit"]);
+    const chromium = await stage("Install Chromium", process.execPath, ["node_modules/@playwright/test/cli.js", "install", "chromium", "--only-shell"]);
+    process.exitCode = webkit.status === "passed" && chromium.status === "passed" ? 0 : 1;
   } else if (mode === "status") status();
   else if (mode === "watch") await watch();
   else process.exitCode = await run(mode) ? 0 : 1;

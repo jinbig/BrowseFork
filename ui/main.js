@@ -16,8 +16,9 @@ let refreshToken = 0;
 
 const isAndroid = () => snapshot?.platform === "android";
 const pageRole = new URL(window.location?.href || "http://localhost/").searchParams.get("view");
-const usesMacWindows = () => snapshot?.platform === "macos" && pageRole !== null;
-const settingsVisible = () => usesMacWindows() ? pageRole === "settings" : showSettings || !snapshot?.pending_url;
+const isWindows = () => snapshot?.platform === "windows";
+const usesDedicatedWindows = () => ["macos", "windows"].includes(snapshot?.platform) && pageRole !== null;
+const settingsVisible = () => usesDedicatedWindows() ? pageRole === "settings" : showSettings || !snapshot?.pending_url;
 const shortcutPrefix = navigator.platform?.startsWith("Mac") ? "⌘" : "Ctrl+";
 
 const MIN_SWITCHER_WIDTH = 320;
@@ -60,7 +61,10 @@ async function refresh() {
 }
 
 function browserName(id) {
-  return snapshot.browsers.find((browser) => browser.id === id)?.name || "Unavailable browser";
+  const current = snapshot.browsers.find((browser) => browser.id === id);
+  if (current) return current.name;
+  const legacy = snapshot.browsers.find(browser => browser.profile?.browser_id === id)?.profile;
+  return legacy ? `${legacy.browser_name} (last used profile)` : "Unavailable browser or profile";
 }
 
 function sourceAppName(id) {
@@ -85,7 +89,8 @@ function renderBrowsers(focusSelection = false) {
   const browsersChanged = renderedBrowsers.length !== snapshot.browsers.length ||
     renderedBrowsers.some((browser, index) => {
       const next = snapshot.browsers[index];
-      return browser.id !== next.id || browser.name !== next.name || browser.icon_data_url !== next.icon_data_url;
+      return browser.id !== next.id || browser.name !== next.name || browser.icon_data_url !== next.icon_data_url ||
+        JSON.stringify(browser.profile) !== JSON.stringify(next.profile);
     });
   if (browsersChanged) list.replaceChildren();
   $("selected-browser").hidden = false;
@@ -107,6 +112,14 @@ function renderBrowsers(focusSelection = false) {
       button.append(icon);
     } else {
       button.append(node("span", "browser-icon-fallback", browser.name.slice(0, 1)));
+    }
+    if (browser.profile) {
+      button.classList.add("has-profile");
+      const badge = browser.profile.avatar_data_url ? node("img", "profile-badge")
+        : node("span", "profile-badge", browser.profile.initials);
+      if (browser.profile.avatar_data_url) { badge.src = browser.profile.avatar_data_url; badge.alt = ""; }
+      badge.setAttribute("aria-hidden", "true");
+      button.append(badge, node("span", "browser-profile-label", browser.profile.name));
     }
     button.append(node("span", "browser-name", browser.name));
     if (index < 9 && !isAndroid()) button.append(node("span", "browser-shortcut", `${shortcutPrefix}${index + 1}`));
@@ -170,7 +183,7 @@ function renderRuleBrowserOptions() {
   if (editingId !== null) {
     const rule = snapshot.rules.find((item) => item.id === editingId);
     if (rule && !snapshot.browsers.some((browser) => browser.id === rule.browser_id)) {
-      const option = node("option", "", "Unavailable browser");
+      const option = node("option", "", browserName(rule.browser_id));
       option.value = rule.browser_id;
       select.append(option);
     }
@@ -251,13 +264,15 @@ function resetRuleForm() {
 function render() {
   if (!snapshot) return;
   document.body.classList.toggle("mobile-android", isAndroid());
+  document.body.classList.toggle("desktop-windows", isWindows());
+  document.body.classList.toggle("has-browser-profiles", snapshot.browsers.some(browser => browser.profile));
   const loading = snapshot.ready === false;
   const mobileDismissed = isAndroid() && snapshot.presentation_requested === null;
-  const inactiveMacPage = usesMacWindows() && snapshot.presentation_requested !== (pageRole === "settings");
+  const inactiveDesktopPage = usesDedicatedWindows() && snapshot.presentation_requested !== (pageRole === "settings");
   $("loading").hidden = !loading;
-  if (loading || mobileDismissed || inactiveMacPage) {
+  if (loading || mobileDismissed || inactiveDesktopPage) {
     document.body.classList.remove("view-ready");
-    if (mobileDismissed || (usesMacWindows() && snapshot.presentation_requested === null)) {
+    if (mobileDismissed || (usesDedicatedWindows() && snapshot.presentation_requested === null)) {
       displayedUrl = null;
       selectedBrowserId = null;
       renderedChooserRevision = null;
@@ -279,15 +294,17 @@ function render() {
   $("settings-view").hidden = !showingSettings;
   $("settings-toggle").textContent = showingSettings && hasPending ? "Back to link" : "Preferences";
   $("settings-toggle").hidden = !hasPending;
-  $("android-setup").hidden = !isAndroid();
+  $("android-setup").hidden = !(isAndroid() || isWindows());
   $("keyboard-hint").hidden = isAndroid();
-  $("rule-source-app").placeholder = isAndroid() ? "Any app, or an Android package ID" : "Any app, or a bundle ID";
-  if (isAndroid()) {
+  $("rule-source-app").placeholder = isAndroid() ? "Any app, or an Android package ID" : isWindows() ? "Any app, or an executable path" : "Any app, or a bundle ID";
+  if (isAndroid() || isWindows()) {
     $("default-browser-status").textContent = snapshot.is_default_browser
       ? "BrowseFork is your default browser."
       : "Set BrowseFork as your default browser to choose where links open.";
     $("make-default-browser").hidden = snapshot.is_default_browser === true;
-    $("setup-note").textContent = "Apps may use their own browser or open verified app links directly. Source app rules work when the sender provides its app ID; otherwise URL rules apply.";
+    $("setup-note").textContent = isWindows()
+      ? "Choose BrowseFork in Windows Settings → Apps → Default apps. Source app detection uses the foreground executable and is best effort; system brokers or background senders may be unknown. URL-only rules work independently."
+      : "Chrome on Android uses one browser profile per Android environment. Google account selection happens inside Chrome. Work-profile browsers require BrowseFork in the same Android profile and may be restricted by your organization. Apps can also bypass BrowseFork using their own browser or verified app links. Source rules require a sender app ID.";
   }
   if (snapshot.error) message(snapshot.error);
 
@@ -350,7 +367,7 @@ function render() {
 async function updateLayout() {
   const settings = settingsVisible();
   const revision = snapshot.presentation_revision;
-  if (isAndroid()) {
+  if (isAndroid() || isWindows()) {
     const ready = await window.browseforkReadyToPresent(revision);
     if (!ready || snapshot.presentation_revision !== revision || settingsVisible() !== settings) return;
   }
@@ -444,7 +461,7 @@ $("save-choice").addEventListener("change", (event) => {
 });
 
 function toggleSettings() {
-  if (usesMacWindows()) {
+  if (usesDedicatedWindows()) {
     invoke("set_view", { settings: pageRole === "chooser" }).catch((error) => message(String(error)));
     return;
   }
@@ -559,7 +576,7 @@ $("rule-form").addEventListener("submit", async (event) => {
 // No timer/rAF is used: hidden web views may throttle those callbacks.
 window.browseforkReadyToPresent = async (revision) => {
   if (!snapshot || snapshot.presentation_revision !== revision) return false;
-  if (usesMacWindows() && snapshot.presentation_requested !== (pageRole === "settings")) return false;
+  if (usesDedicatedWindows() && snapshot.presentation_requested !== (pageRole === "settings")) return false;
   if (document.fonts) await document.fonts.ready;
   const icons = [...$("browser-list").querySelectorAll("img")];
   await Promise.all(icons.map((icon) => icon.decode().catch(() => {})));
@@ -589,7 +606,7 @@ listen("browsefork-state-changed", (event) => {
   applyPlatformUpdate(event?.payload, true);
 });
 listen("browsefork-open-preferences", () => {
-  if (usesMacWindows() && pageRole !== "settings") return;
+  if (usesDedicatedWindows() && pageRole !== "settings") return;
   showSettings = true;
   refresh();
 });

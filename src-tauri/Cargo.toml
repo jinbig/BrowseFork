@@ -15,15 +15,30 @@ name = "gui-regression"
 path = "src/bin/gui-regression.rs"
 required-features = ["gui-tests"]
 
+[[bin]]
+name = "windows-test-browser"
+path = "src/bin/windows-test-browser.rs"
+required-features = ["gui-tests"]
+
 [lib]
 name = "browsefork_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
+base64 = "0.22"
 browsefork-core = { path = "../crates/browsefork-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+png = "0.18"
+tauri-plugin-single-instance = "2.5.4"
+url = "2.5"
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Environment", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+winreg = "0.55"
 
 [target.'cfg(target_os = "android")'.dependencies]
 tauri-plugin-browsefork-android = { path = "../crates/tauri-plugin-browsefork-android" }

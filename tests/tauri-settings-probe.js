@@ -16,6 +16,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const first = await invoke("get_snapshot");
     if (first.rules.length !== 0) throw new Error("Probe must start with empty isolated settings");
     for (let cycle = 0; cycle < 12; cycle++) {
+      await emit("browsefork-gui-probe-progress", cycle);
       const rules = [0, 1].map(offset => ({
         id: cycle * 2 + offset + 1, mode: "host", source_app_id: null,
         pattern: `gui-probe-${cycle}-${offset}.invalid`, browser_id: "/Applications/Safari.app", enabled: true,

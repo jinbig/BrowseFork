@@ -69,6 +69,9 @@ pub fn parse_openable_url(value: &str) -> Result<Url, String> {
         return Ok(url);
     }
     if url.scheme() == "file" {
+        if url.host_str().is_some_and(|host| host != "localhost") {
+            return Err("Only local HTML files can be opened".into());
+        }
         let path = url
             .to_file_path()
             .map_err(|_| "Only local HTML files can be opened".to_string())?;
@@ -321,8 +324,8 @@ mod tests {
 
     #[test]
     fn local_html_pages_can_be_routed_by_folder() {
-        let url = parse_openable_url("file:///private/tmp/vpn%20auth/saml.HTML").unwrap();
-        assert_eq!(suggested_pattern(&url), "file:///private/tmp/vpn%20auth/");
+        let url = parse_openable_url("file:///C:/Temp/vpn%20auth/saml.HTML").unwrap();
+        assert_eq!(suggested_pattern(&url), "file:///C:/Temp/vpn%20auth/");
         let mut settings = Settings::default();
         settings
             .add_rule(

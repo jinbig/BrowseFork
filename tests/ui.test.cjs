@@ -169,7 +169,7 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
   const windowHandlers = new Map();
   const context = {
     document,
-    navigator: { platform: "MacIntel" },
+    navigator: { platform: platform === "windows" ? "Win32" : "MacIntel" },
     window: { addEventListener: (name, callback) => windowHandlers.set(name, callback), location: { href: windowRole ? `tauri://localhost/index.html?view=${windowRole}` : "tauri://localhost/" }, __TAURI__: { core: { invoke }, event: { listen: (name, callback) => listeners.set(name, callback) } } },
     HTMLElement: FakeElement,
     URL,
@@ -271,6 +271,42 @@ test("Android Preferences requests the browser role through the native command",
   app.$("make-default-browser").click();
   await settle();
   assert.equal(app.calls.filter((call) => call.command === "request_default_browser").length, 1);
+});
+
+test("Windows uses dedicated Settings, Default Apps setup, and Ctrl browser shortcuts", async () => {
+  const app = chooser({ platform: "windows", windowRole: "chooser" });
+  await settle();
+  assert.equal(app.$("chooser-view").hidden, false);
+  assert.equal(app.$("topbar").hidden, true);
+  assert.equal(app.$("browser-list").children[0].children.at(-1).textContent, "Ctrl+1");
+  app.$("switcher-settings").click();
+  await settle();
+  assert.equal(app.calls.filter(call => call.command === "set_view").at(-1).args.settings, true);
+  assert.equal(app.$("settings-view").hidden, true, "chooser never becomes the Settings document");
+  assert.equal(await app.readyToPresent(app.getSnapshot().presentation_revision), false);
+  const settings = chooser({ platform: "windows", windowRole: "settings" });
+  await settle();
+  settings.setSnapshot({ ...settings.getSnapshot(), presentation_requested: true }, "browsefork-open-preferences");
+  await settle();
+  assert.equal(settings.$("android-setup").hidden, false);
+  assert.match(settings.$("rule-source-app").placeholder, /executable path/);
+  assert.match(settings.$("setup-note").textContent, /best effort/);
+  settings.$("make-default-browser").click();
+  await settle();
+  assert.ok(settings.calls.some(call => call.command === "request_default_browser"));
+});
+
+test("Windows does not request native reveal until fonts and icons are ready", async () => {
+  let releaseFonts;
+  const app = chooser({ platform: "windows", windowRole: "chooser", fontsReady: new Promise(resolve => { releaseFonts = resolve; }) });
+  await settle();
+  assert.equal(app.calls.some(call => call.command === "set_picker_layout"), false);
+  releaseFonts();
+  await settle();
+  assert.equal(app.calls.filter(call => call.command === "set_picker_layout").at(-1).focusAtCall, "Brave");
+  app.key("2", false, { ctrlKey: true });
+  await settle();
+  assert.equal(app.calls.find(call => call.command === "choose_browser").args.browserId, "safari");
 });
 
 test("Tab focuses one browser at a time and reaches the expanded save controls", async () => {
@@ -705,4 +741,21 @@ test("a new local HTML link resets the previous choice and proposes a folder rul
   assert.equal(app.$("save-mode").value, "contains");
   assert.equal(app.$("save-mode").querySelector('option[value="host"]').disabled, true);
   assert.equal(app.$("save-pattern").value, "file:///private/tmp/vpn/");
+});
+
+test("legacy Chrome rules stay named and editable when explicit profiles replace its tile", async () => {
+  const app = chooser({ windowRole: "settings" });
+  app.setSnapshot({
+    presentation_requested: true,
+    pending_url: null,
+    browsers: [{ id: "chrome-profile-a", name: "Chrome · A", icon_data_url: null,
+      profile: { name: "A", initials: "A", avatar_data_url: null, browser_id: "chrome", browser_name: "Chrome" } }],
+    rules: [{ id: 1, browser_id: "chrome", pattern: "legacy.invalid", mode: "host", enabled: true }],
+  });
+  await settle();
+  const row = app.$("rules-list").children[0];
+  assert.match(row.children[0].children[1].textContent, /Chrome \(last used profile\)/);
+  row.children[1].children[3].click();
+  const legacy = app.$("rule-browser").options.find(option => option.value === "chrome");
+  assert.equal(legacy.textContent, "Chrome (last used profile)");
 });

@@ -12,6 +12,8 @@ use platform::{Browser, SourceApp};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
+use std::time::Duration;
 #[cfg(target_os = "macos")]
 use std::{
     ffi::{c_char, CStr},
@@ -38,7 +40,7 @@ const MIN_PICKER_HEIGHT: f64 = 200.0;
 const MAX_PICKER_HEIGHT: f64 = 720.0;
 #[cfg(target_os = "macos")]
 const OPEN_EVENT_GRACE_PERIOD: Duration = Duration::from_millis(250);
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 const FOCUS_LOSS_GRACE_PERIOD: Duration = Duration::from_millis(300);
 
 #[cfg(not(target_os = "android"))]
@@ -58,7 +60,7 @@ struct AppState {
     settings: Mutex<Settings>,
     pending: Mutex<PendingLinks>,
     settings_path: PathBuf,
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "windows"))]
     pending_path: PathBuf,
     startup_error: Mutex<Option<String>>,
     presentation: Mutex<Presentation>,
@@ -124,7 +126,7 @@ struct WindowInactive {
     expected_url: Option<String>,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "android"))]
 fn should_dismiss_inactive(
     inactive: &WindowInactive,
     current_revision: u64,
@@ -133,7 +135,7 @@ fn should_dismiss_inactive(
     !app_active && current_revision == inactive.expected_revision
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, not(target_os = "android")))]
 mod presentation_tests {
     use super::{should_apply_window_layout, should_dismiss_inactive, WindowInactive};
 
@@ -159,7 +161,7 @@ mod presentation_tests {
 
 #[cfg(not(target_os = "android"))]
 fn window_label(settings: bool) -> &'static str {
-    if cfg!(target_os = "macos") && settings {
+    if cfg!(any(target_os = "macos", target_os = "windows")) && settings {
         "settings"
     } else {
         "main"
@@ -186,11 +188,34 @@ fn window_inactive_payload(app: &AppHandle) -> Option<WindowInactive> {
     Some(inactive)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "android")))]
+#[cfg(not(any(target_os = "macos", target_os = "android", target_os = "windows")))]
 fn notify_window_inactive(app: &AppHandle) {
     if let Some(inactive) = window_inactive_payload(app) {
         let _ = app.emit("browsefork-window-inactive", inactive);
     }
+}
+
+#[cfg(target_os = "windows")]
+fn notify_window_inactive(app: &AppHandle) {
+    let Some(inactive) = window_inactive_payload(app) else {
+        return;
+    };
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(FOCUS_LOSS_GRACE_PERIOD);
+        let revision = app
+            .state::<AppState>()
+            .presentation
+            .lock()
+            .unwrap()
+            .revision;
+        if should_dismiss_inactive(&inactive, revision, platform::windows::is_app_active()) {
+            if platform::windows::consume_expected_browser_activation() {
+                return;
+            }
+            let _ = app.emit("browsefork-window-inactive", inactive);
+        }
+    });
 }
 
 #[derive(Serialize)]
@@ -255,7 +280,16 @@ fn snapshot(state: &AppState) -> Snapshot {
         #[cfg(target_os = "android")]
         is_default_browser: platform::android::is_default_browser(),
         #[cfg(not(target_os = "android"))]
-        is_default_browser: None,
+        is_default_browser: {
+            #[cfg(target_os = "windows")]
+            {
+                Some(platform::windows::is_default_browser())
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                None
+            }
+        },
         presentation_revision,
         presentation_requested,
         pending_url,
@@ -290,9 +324,9 @@ fn set_window_layout(
         let current_settings = app.state::<AppState>().settings.lock().unwrap().clone();
         #[cfg(target_os = "macos")]
         let switcher = !settings;
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let decorated = settings;
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         if window.is_decorated().ok() != Some(decorated) {
             if let Err(error) = window.set_decorations(decorated) {
                 eprintln!("BrowseFork: could not update window decorations: {error}");
@@ -374,7 +408,7 @@ fn should_apply_window_layout(
     !settings || !visible || rendered_settings != Some(true)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "android")))]
+#[cfg(not(any(target_os = "macos", target_os = "android", target_os = "windows")))]
 fn present_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -388,6 +422,16 @@ fn present_window(app: &AppHandle) {
             eprintln!("BrowseFork: could not focus chooser content: {error}");
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_view_is_current(app: &AppHandle, revision: u64, settings: bool) -> bool {
+    let state = app.state::<AppState>();
+    let presentation = state.presentation.lock().unwrap();
+    presentation.revision == revision
+        && presentation.rendered_revision == revision
+        && presentation.requested_settings == Some(settings)
+        && presentation.rendered_settings == Some(settings)
 }
 
 #[cfg(target_os = "macos")]
@@ -427,11 +471,11 @@ fn request_window(app: &AppHandle, settings: bool) {
         presentation.rendered_url = None;
     }
     drop(presentation);
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if let Some(other) = app.get_webview_window(window_label(!settings)) {
         let _ = other.hide();
     }
-    #[cfg(not(any(target_os = "macos", target_os = "android")))]
+    #[cfg(not(any(target_os = "macos", target_os = "android", target_os = "windows")))]
     if changing_view {
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.hide();
@@ -466,7 +510,7 @@ fn dismiss_native_window(app: &AppHandle) {
     let _ = app;
 }
 
-#[cfg(any(target_os = "macos", target_os = "android"))]
+#[cfg(any(target_os = "macos", target_os = "android", target_os = "windows"))]
 fn show_preferences(app: &AppHandle) {
     request_window(app, true);
     let _ = app.emit("browsefork-open-preferences", ());
@@ -514,7 +558,7 @@ fn receive_url(app: &AppHandle, raw: &str, source_app_id: Option<&str>) {
         presentation.revision = presentation.revision.wrapping_add(1);
         presentation.received_url = true;
     }
-    #[cfg(any(target_os = "macos", target_os = "android"))]
+    #[cfg(any(target_os = "macos", target_os = "android", target_os = "windows"))]
     if matches!(
         raw,
         "browsefork://preferences" | "browsefork://preferences/"
@@ -525,12 +569,8 @@ fn receive_url(app: &AppHandle, raw: &str, source_app_id: Option<&str>) {
     let state = app.state::<AppState>();
     let settings = state.settings.lock().unwrap().clone();
     let outcome = dispatch_link_for_source(raw, source_app_id, &settings, |browser_id, url| {
-        let browsers = platform::list_browsers()?;
-        let browser = browsers
-            .iter()
-            .find(|browser| browser.id == browser_id)
-            .ok_or("Rule browser is no longer available")?;
-        platform::open_url(browser, url)
+        let browser = platform::find_browser(browser_id)?;
+        platform::open_url(&browser, url)
     });
     if let DispatchOutcome::NeedsChoice { url } = outcome {
         queue_link(app, url, source_app_id);
@@ -620,7 +660,9 @@ fn set_view(app: AppHandle, settings: bool) {
 fn request_default_browser() -> Result<(), String> {
     #[cfg(target_os = "android")]
     return platform::android::request_default_browser();
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "windows")]
+    return platform::windows::request_default_browser();
+    #[cfg(not(any(target_os = "android", target_os = "windows")))]
     Err("Choose BrowseFork in your operating system's default browser settings".into())
 }
 
@@ -767,11 +809,11 @@ fn set_picker_layout(
     content_height: Option<f64>,
     content_width: Option<f64>,
 ) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if window.label() != window_label(settings) {
         return;
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = window;
     #[cfg(target_os = "android")]
     {
@@ -854,7 +896,15 @@ fn set_picker_layout(
                 eprintln!("BrowseFork: could not refresh Settings title bar: {error}");
             }
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        if !visible || new_presentation {
+            if let Err(error) =
+                platform::windows::present_rendered_window(&window, presentation_revision, settings)
+            {
+                eprintln!("BrowseFork: could not prepare Windows presentation: {error}");
+            }
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         if !visible {
             present_window(&app);
         } else if new_presentation {
@@ -869,6 +919,16 @@ fn replace_rules(
     state: State<'_, AppState>,
     rules: Vec<Rule>,
 ) -> Result<Snapshot, String> {
+    #[cfg(target_os = "windows")]
+    let rules = rules
+        .into_iter()
+        .map(|mut rule| {
+            rule.source_app_id = rule
+                .source_app_id
+                .map(|id| platform::windows::normalize_source_app_id(&id));
+            rule
+        })
+        .collect();
     let mut settings = state.settings.lock().unwrap().clone();
     settings.replace_rules(rules)?;
     save_settings(&state.settings_path, &settings)?;
@@ -879,10 +939,10 @@ fn replace_rules(
     Ok(snapshot(&state))
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "windows")))]
 fn persist_pending_links(_state: &AppState) {}
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "windows"))]
 fn persist_pending_links(state: &AppState) {
     let pending = state.pending.lock().unwrap();
     let result = (|| -> Result<(), String> {
@@ -899,17 +959,114 @@ fn persist_pending_links(state: &AppState) {
     }
 }
 
+#[cfg(target_os = "windows")]
+struct WindowsLaunch {
+    arguments: Vec<String>,
+    cwd: PathBuf,
+    source_app_id: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+static WINDOWS_LAUNCHES: Mutex<Vec<WindowsLaunch>> = Mutex::new(Vec::new());
+
+#[cfg(target_os = "windows")]
+fn handle_windows_launch(app: &AppHandle, launch: WindowsLaunch) {
+    let mut delivered = false;
+    for argument in launch.arguments.into_iter().skip(1) {
+        if argument.starts_with('-') {
+            continue;
+        }
+        let path = launch.cwd.join(&argument);
+        let url = if path.is_file() {
+            url::Url::from_file_path(&path)
+                .ok()
+                .map(|url| url.to_string())
+        } else if argument.contains(':') {
+            Some(argument)
+        } else {
+            None
+        };
+        if let Some(url) = url {
+            receive_url(app, &url, launch.source_app_id.as_deref());
+            delivered = true;
+        }
+    }
+    if !delivered {
+        if app.state::<AppState>().pending.lock().unwrap().is_empty() {
+            show_preferences(app);
+        } else {
+            request_window(app, false);
+            notify(app);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if let Some(result) = std::env::args()
+        .nth(1)
+        .as_deref()
+        .and_then(platform::windows::registration_command)
+    {
+        if let Err(error) = result {
+            eprintln!("BrowseFork registration failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    WINDOWS_LAUNCHES.lock().unwrap().push(WindowsLaunch {
+        arguments: std::env::args().collect(),
+        cwd: std::env::current_dir().unwrap_or_default(),
+        source_app_id: platform::windows::foreground_source_app(),
+    });
     #[cfg(target_os = "macos")]
     platform::install_launch_observer();
 
+    let context = tauri::generate_context!();
+    #[cfg(all(feature = "gui-tests", target_os = "windows"))]
+    let context = {
+        let mut context = context;
+        if let Some(directory) = std::env::var_os("BROWSEFORK_WINDOWS_TEST_DIR") {
+            // A smoke test must never forward URLs to the user's running app.
+            let suffix = PathBuf::from(directory)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            context.config_mut().identifier = format!("com.browsefork.windows-tests.{suffix}");
+        }
+        context
+    };
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, cwd| {
+        let launch = WindowsLaunch {
+            arguments,
+            cwd: PathBuf::from(cwd),
+            source_app_id: platform::windows::foreground_source_app(),
+        };
+        WINDOWS_LAUNCHES.lock().unwrap().push(launch);
+        let target = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if target.try_state::<AppState>().is_some() {
+                let launches = std::mem::take(&mut *WINDOWS_LAUNCHES.lock().unwrap());
+                for launch in launches {
+                    handle_windows_launch(&target, launch);
+                }
+            }
+        });
+    }));
     #[cfg(target_os = "android")]
     let builder = builder.plugin(tauri_plugin_browsefork_android::init());
     let app = builder
         .setup(|app| {
             let settings_path = app.path().app_config_dir()?.join("settings.json");
+            #[cfg(all(feature = "gui-tests", target_os = "windows"))]
+            let settings_path = std::env::var_os("BROWSEFORK_WINDOWS_TEST_DIR")
+                .map(|directory| PathBuf::from(directory).join("settings.json"))
+                .unwrap_or(settings_path);
             #[cfg(all(feature = "gui-tests", target_os = "macos"))]
             let settings_path = if gui_probe::active() {
                 gui_probe::settings_path()
@@ -920,9 +1077,9 @@ pub fn run() {
                 Ok(settings) => (settings, None),
                 Err(error) => (Settings::default(), Some(error)),
             };
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_os = "windows"))]
             let pending_path = settings_path.with_file_name("pending-links.json");
-            #[cfg(target_os = "android")]
+            #[cfg(any(target_os = "android", target_os = "windows"))]
             let (pending, startup_error) = match std::fs::read(&pending_path) {
                 Ok(data) => match serde_json::from_slice::<PendingLinks>(&data) {
                     Ok(pending) => (pending, startup_error),
@@ -939,20 +1096,38 @@ pub fn run() {
                     Some(format!("Could not read waiting links: {error}")),
                 ),
             };
-            #[cfg(not(target_os = "android"))]
+            #[cfg(not(any(target_os = "android", target_os = "windows")))]
             let pending = PendingLinks::default();
             app.manage(AppState {
                 settings: Mutex::new(settings),
                 pending: Mutex::new(pending),
                 settings_path,
-                #[cfg(target_os = "android")]
+                #[cfg(any(target_os = "android", target_os = "windows"))]
                 pending_path,
                 startup_error: Mutex::new(startup_error),
                 presentation: Mutex::new(Presentation::default()),
             });
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
+                #[cfg(target_os = "windows")]
+                let owner = {
+                    let owner =
+                        platform::windows::create_window_owner().map_err(std::io::Error::other)?;
+                    let config = app
+                        .config()
+                        .app
+                        .windows
+                        .iter()
+                        .find(|window| window.label == "main")
+                        .ok_or("Missing chooser window configuration")?;
+                    tauri::WebviewWindowBuilder::from_config(app, config)?
+                        .owner_raw(owner)
+                        .build()?;
+                    owner
+                };
+                #[cfg(target_os = "macos")]
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                #[cfg(target_os = "macos")]
                 let _ = MACOS_APP.set(app.handle().clone());
                 let settings_builder = tauri::WebviewWindowBuilder::new(
                     app,
@@ -961,10 +1136,14 @@ pub fn run() {
                 )
                 .title("BrowseFork Settings")
                 .visible(false)
+                .focused(!cfg!(target_os = "windows"))
+                .skip_taskbar(cfg!(target_os = "windows"))
                 .decorations(true)
                 .inner_size(SETTINGS_WINDOW_SIZE.width, SETTINGS_WINDOW_SIZE.height)
                 .min_inner_size(MIN_PICKER_WIDTH, MIN_PICKER_HEIGHT)
                 .resizable(true);
+                #[cfg(target_os = "windows")]
+                let settings_builder = settings_builder.owner_raw(owner);
                 #[cfg(all(feature = "gui-tests", target_os = "macos"))]
                 let settings_builder = if gui_probe::active() {
                     settings_builder
@@ -978,9 +1157,13 @@ pub fn run() {
                     gui_probe::setup(app.handle());
                     return Ok(());
                 }
-                platform::install_url_handler(macos_receive_url);
-                platform::install_deactivation_handler(macos_app_deactivated);
+                #[cfg(target_os = "macos")]
+                {
+                    platform::install_url_handler(macos_receive_url);
+                    platform::install_deactivation_handler(macos_app_deactivated);
+                }
             }
+            #[cfg(not(target_os = "windows"))]
             for argument in std::env::args().skip(1) {
                 if !argument.starts_with('-')
                     && (argument.contains(':') || std::path::Path::new(&argument).is_file())
@@ -1002,7 +1185,7 @@ pub fn run() {
             replace_rules,
             request_default_browser
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to build BrowseFork");
 
     // Setup runs after the event loop starts. Set the initial policy beforehand
@@ -1018,6 +1201,13 @@ pub fn run() {
     }
 
     app.run(|app, event| match event {
+        #[cfg(target_os = "windows")]
+        tauri::RunEvent::Ready => {
+            let launches = std::mem::take(&mut *WINDOWS_LAUNCHES.lock().unwrap());
+            for launch in launches {
+                handle_windows_launch(app, launch);
+            }
+        }
         #[cfg(all(feature = "gui-tests", target_os = "macos"))]
         tauri::RunEvent::Ready if gui_probe::active() => {}
         #[cfg(target_os = "macos")]
@@ -1052,10 +1242,11 @@ pub fn run() {
             label,
             event: WindowEvent::Focused(false),
             ..
-        } if label == "main" => {
+        } if label == "main" || label == "settings" => {
             notify_window_inactive(app);
         }
         tauri::RunEvent::WindowEvent {
+            label,
             event: WindowEvent::CloseRequested { api, .. },
             ..
         } => {
@@ -1063,7 +1254,20 @@ pub fn run() {
             api.prevent_close();
             #[cfg(target_os = "macos")]
             app.exit(0);
-            #[cfg(not(any(target_os = "macos", target_os = "android")))]
+            #[cfg(target_os = "windows")]
+            if label == "settings" {
+                app.exit(0);
+            } else if let Some(inactive) = window_inactive_payload(app) {
+                let _ = dismiss_window(
+                    app.clone(),
+                    app.state::<AppState>(),
+                    inactive.expected_url,
+                    inactive.expected_revision,
+                );
+            }
+            #[cfg(not(target_os = "windows"))]
+            let _ = label;
+            #[cfg(not(any(target_os = "macos", target_os = "android", target_os = "windows")))]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.hide();
             }

@@ -116,6 +116,38 @@ precedence; update this document when an agreed requirement changes.
 - Use named constants for meaningful layout dimensions and limits rather than
   unexplained numeric literals in Rust or JavaScript.
 
+## Windows
+
+- Use the same shared rules, compact icon switcher, Save choice, keyboard
+  navigation, cancellation and waiting-link behaviour as macOS, with Ctrl+1–9
+  browser shortcuts on Windows.
+- Keep a permanently frameless chooser and a separate permanently decorated
+  Settings window. Settings has normal visible close/minimize/maximize controls
+  after rule edits and restores its saved size. Neither window has a taskbar button.
+- Opening the app normally provides access to Settings or a waiting chooser.
+  Repeated launches deliver links to the existing instance. A matched rule must
+  launch silently; an unavailable or failed browser still offers the chooser.
+- Advertise HTTP/HTTPS and HTML capabilities during per-user installation and
+  direct the user to Windows Default Apps. Never force or overwrite defaults.
+- Source app matching uses the foreground executable as a best-effort hint,
+  because Windows HTTP activation does not supply the macOS sender identity.
+  Explain that limitation; unknown/system broker identities do not match source
+  rules. URL-only rules remain independent of source detection.
+- Preserve waiting links across Windows process exits. Initialize the selected
+  view while hidden and check opening transitions on actual Windows.
+
+## Browser profiles
+
+- Desktop Chrome profiles are separate choices using their actual names,
+  photos or initials. Do not assume work/personal labels or require a Google
+  sign-in. Arbitrary names such as A and S are valid.
+- Show each profile name on its tile and preserve keyboard/Save choice behaviour.
+  Rules use a stable profile identity: renaming keeps it, deletion asks for
+  another choice. Existing generic Chrome rules retain their behaviour.
+- Android Google accounts are not separate browser launch targets. Offer only
+  supported destinations, use Android's managed-profile icon badges, and explain
+  the limitation in Settings. Do not show account choices that open the same session.
+
 ## Verification
 
 Use [TESTING.md](TESTING.md) for checks and [ANDROID.md](ANDROID.md) for Android

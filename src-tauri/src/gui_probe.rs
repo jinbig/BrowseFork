@@ -23,6 +23,9 @@ pub fn setup(app: &AppHandle) {
         .unwrap()
         .requested_settings = Some(true);
     let result_app = app.clone();
+    app.listen("browsefork-gui-probe-progress", |event| {
+        eprintln!("GUI probe progress: {}", event.payload());
+    });
     app.listen("browsefork-gui-probe-finished", move |event| {
         if event.payload() == "\"passed\"" {
             println!("PASS real Tauri Settings IPC: repeated add/delete, native callbacks, persisted rules");

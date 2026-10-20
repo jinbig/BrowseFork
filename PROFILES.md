@@ -4,14 +4,27 @@
 
 On macOS and Windows, BrowseFork reads Chrome's local `Local State` profile
 metadata and offers each existing profile as a separate destination. Chrome
-Stable, Beta, Dev and Canary use their respective standard data directories.
+Stable, Beta, Dev, Canary and Chromium use their respective standard data directories.
 Names are the user's Chrome names, including arbitrary names/initials such as
-`A` and `S`. BrowseFork does not classify profiles as work or personal.
+`A` and `S`. Enterprise labels take precedence; an explicitly accepted managed
+account is labeled Work when no custom enterprise label is stored. Custom local
+names such as Personal take precedence over Google given names. Unmanaged
+profiles are not automatically classified as Personal. If Chrome stores identical
+names, directory labels still distinguish them. Chrome's runtime policy or
+localized toolbar text may differ from this local metadata.
 
 The chooser shows the browser icon, a locally available profile photo or an
 initial badge, and the profile name. The same destination appears in the rule
 editor and Save choice. Identical names receive a directory suffix to tell them
 apart. Long names truncate in the tile; the selected label retains the full name.
+
+Settings offers **Show all profiles** (default), **Show one entry per browser**,
+and **Choose profiles to show** with checkboxes. The single entry uses Chrome's
+normal last-used-profile behavior. These settings filter the chooser only;
+existing rules and all targets remain available in the rule editor. If selected
+profiles have disappeared, the browser's normal entry remains available.
+Changing modes preserves the selected-profile list. Chrome's company account
+restrictions are not changed.
 
 Profile IDs include the installation, data directory and profile directory.
 Renaming preserves rules. A deleted profile brings back the chooser instead of
@@ -54,6 +67,8 @@ Linux and iOS native app support is not implemented.
 
 The GUI gate tests profile tile layout, initials, keyboard navigation, saved
 profile IDs, selection restoration and legacy-rule editing in WebKit/Chromium.
+Settings mode persistence, hidden-profile rule targets, checkbox keyboard access,
+waiting-link retention and stale-selection fallback are also covered.
 Rust fixtures test renamed/deleted/duplicate/Unicode profiles, bounded reads,
 invalid paths and local avatars. A macOS native probe launches a capture-only
 temporary bundle to verify exact profile/URL arguments. Windows native tests can

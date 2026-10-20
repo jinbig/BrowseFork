@@ -64,6 +64,20 @@
           <p id="default-browser-status">Set BrowseFork as your default browser to choose where links open.</p>
           <button id="make-default-browser" class="primary-button" type="button">Set as default browser</button>
         </div>
+        <section id="profile-preferences" class="profile-preferences" aria-label="Browser profile preferences" hidden>
+          <label for="profile-mode">Chrome / Chromium profiles</label>
+          <select id="profile-mode">
+            <option value="all">Show all profiles (default)</option>
+            <option value="single">Show one entry per browser</option>
+            <option value="selected">Choose profiles to show</option>
+          </select>
+          <p class="profile-preferences-hint">One entry uses the browser's normal profile selection. This changes the chooser only; existing rules keep their targets and Chrome's account policies still apply.</p>
+          <fieldset id="profile-selection" hidden>
+            <legend>Profiles shown in the chooser</legend>
+            <div id="profile-options"></div>
+            <p class="profile-preferences-hint">If none of a browser's selected profiles is available, show its single browser entry.</p>
+          </fieldset>
+        </section>
         <div id="rules-list" class="rules-list"></div>
 
         <form id="rule-form" class="rule-form">

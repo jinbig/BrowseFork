@@ -67,6 +67,15 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .primary-button { padding: 9px 13px; border: 0; border-radius: 8px; background: #4559d8; color: white; font-size: 13px; font-weight: 650; }
 .primary-button:hover { background: #3446bd; }
 .setup-note { color: #788195; font-size: 12px; line-height: 1.5; }
+.profile-preferences { display: grid; gap: 10px; padding: 16px; margin-bottom: 18px; border: 1px solid #dfe3eb; border-radius: 12px; background: white; }
+.profile-preferences > label { font-size: 13px; font-weight: 650; }
+.profile-preferences-hint { margin: 0; color: #626b7d; font-size: 12px; line-height: 1.5; }
+#profile-selection { min-width: 0; margin: 0; padding: 12px; border: 1px solid #dfe3eb; border-radius: 8px; }
+#profile-selection legend { font-size: 12px; color: #626b7d; }
+#profile-options { display: grid; gap: 10px; margin-bottom: 12px; }
+.profile-option { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; }
+.profile-option input { flex: 0 0 auto; width: 16px; height: 16px; accent-color: #4559d8; }
+.profile-option span { overflow-wrap: anywhere; }
 #chooser-view { display: flex; flex-direction: column; }
 #save-card { order: 4; }
 .chooser-footer { order: 5; }
@@ -79,10 +88,9 @@ input[type="text"]:focus, select:focus { outline: 2px solid #a9b4ff; border-colo
 .picker-switcher #browser-list { display: flex; justify-content: flex-start; gap: 8px; width: 100%; min-height: 90px; max-height: none; margin: 0 auto; padding: 5px 8px; overflow-x: auto; overflow-y: hidden; }
 .picker-switcher #browser-list .browser-button:first-child { margin-left: auto; }
 .picker-switcher #browser-list .browser-button:last-child { margin-right: auto; }
-.picker-switcher .browser-button { position: relative; flex: 0 0 82px; display: grid; place-items: center; min-height: 80px; padding: 7px; border: 2px solid transparent; border-radius: 17px; background: transparent; color: white; }
+.picker-switcher .browser-button { outline: none; position: relative; flex: 0 0 82px; display: grid; place-items: center; min-height: 80px; padding: 7px; border: 2px solid transparent; border-radius: 17px; background: transparent; color: white; }
 .picker-switcher .browser-button:hover { background: #343c46; }
-.picker-switcher .browser-button.is-selected,
-.picker-switcher.keyboard-navigation .browser-button:focus { border-color: #818c99; background: #4a545f; outline: none; }
+.picker-switcher .browser-button.is-selected { border-color: #818c99; background: #4a545f; outline: none; }
 .picker-switcher .browser-icon,
 .picker-switcher .browser-icon-fallback { width: 56px; height: 56px; }
 .picker-switcher .browser-icon-fallback { border-radius: 13px; background: #4559d8; color: white; font-size: 28px; }

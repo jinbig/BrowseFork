@@ -6,7 +6,7 @@ mod platform;
 use browsefork_core::WindowSize;
 use browsefork_core::{
     dispatch_link_for_source, load_settings, parse_openable_url, save_settings, suggested_pattern,
-    DispatchOutcome, MatchMode, PendingLinks, Rule, Settings,
+    DispatchOutcome, MatchMode, PendingLinks, ProfilePreferences, Rule, Settings,
 };
 use platform::{Browser, SourceApp};
 use serde::{Deserialize, Serialize};
@@ -230,6 +230,8 @@ struct Snapshot {
     pending_count: usize,
     suggested_pattern: Option<String>,
     browsers: Vec<Browser>,
+    chooser_browser_ids: Vec<String>,
+    profile_preferences: ProfilePreferences,
     source_apps: Vec<SourceApp>,
     rules: Vec<Rule>,
     error: Option<String>,
@@ -259,14 +261,15 @@ fn snapshot(state: &AppState) -> Snapshot {
         .as_deref()
         .and_then(|value| parse_openable_url(value).ok())
         .map(|url| suggested_pattern(&url));
-    let (browsers, discovery_error) = match platform::list_browsers() {
-        Ok(browsers) => (browsers, None),
-        Err(error) => (Vec::new(), Some(error)),
-    };
+    let settings = state.settings.lock().unwrap().clone();
+    let (browsers, chooser_browser_ids, discovery_error) =
+        match platform::browser_catalog(&settings.profile_preferences) {
+            Ok(catalog) => (catalog.browsers, catalog.chooser_browser_ids, None),
+            Err(error) => (Vec::new(), Vec::new(), Some(error)),
+        };
     let source_apps = platform::list_source_apps();
-    let settings = state.settings.lock().unwrap();
-    let rules = settings.rules.clone();
-    drop(settings);
+    let rules = settings.rules;
+    let profile_preferences = settings.profile_preferences;
     let presentation = state.presentation.lock().unwrap();
     let presentation_revision = presentation.revision;
     let presentation_requested = presentation.requested_settings;
@@ -297,6 +300,8 @@ fn snapshot(state: &AppState) -> Snapshot {
         pending_count,
         suggested_pattern,
         browsers,
+        chooser_browser_ids,
+        profile_preferences,
         source_apps,
         rules,
         error: discovery_error.or_else(|| state.startup_error.lock().unwrap().clone()),
@@ -679,11 +684,7 @@ fn choose_browser(
     expected_url: String,
     save_rule: Option<SaveRule>,
 ) -> Result<ChooseResult, String> {
-    let browsers = platform::list_browsers()?;
-    let browser = browsers
-        .iter()
-        .find(|browser| browser.id == browser_id)
-        .ok_or("Selected browser is no longer available")?;
+    let browser = platform::find_browser(&browser_id)?;
     let mut pending = state.pending.lock().unwrap();
     let url = pending
         .front()
@@ -710,7 +711,7 @@ fn choose_browser(
         None
     };
 
-    platform::open_url(browser, &url)?;
+    platform::open_url(&browser, &url)?;
     *state.startup_error.lock().unwrap() = None;
     pending.pop_front();
     let more_pending = !pending.is_empty();
@@ -913,6 +914,26 @@ fn set_picker_layout(
     }
 }
 
+#[tauri::command(async)]
+fn set_profile_preferences(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mut preferences: ProfilePreferences,
+) -> Result<Snapshot, String> {
+    preferences.normalize();
+    preferences.validate()?;
+    {
+        let mut settings = state.settings.lock().unwrap();
+        let mut updated = settings.clone();
+        updated.profile_preferences = preferences;
+        save_settings(&state.settings_path, &updated)?;
+        *settings = updated;
+    }
+    // Native window queries and discovery must run after releasing the mutex.
+    let _ = app.emit("browsefork-preferences-changed", ());
+    Ok(snapshot(&state))
+}
+
 #[tauri::command]
 fn replace_rules(
     app: AppHandle,
@@ -929,10 +950,13 @@ fn replace_rules(
             rule
         })
         .collect();
-    let mut settings = state.settings.lock().unwrap().clone();
-    settings.replace_rules(rules)?;
-    save_settings(&state.settings_path, &settings)?;
-    *state.settings.lock().unwrap() = settings;
+    {
+        let mut current = state.settings.lock().unwrap();
+        let mut settings = current.clone();
+        settings.replace_rules(rules)?;
+        save_settings(&state.settings_path, &settings)?;
+        *current = settings;
+    }
     *state.startup_error.lock().unwrap() = None;
     // Editing rules updates data without requesting a switch back to the chooser.
     let _ = app.emit("browsefork-rules-changed", ());
@@ -1183,6 +1207,7 @@ pub fn run() {
             set_picker_layout,
             set_view,
             replace_rules,
+            set_profile_preferences,
             request_default_browser
         ])
         .build(context)

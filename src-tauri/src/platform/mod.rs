@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+mod choices;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Browser {
@@ -73,6 +74,35 @@ pub fn list_browsers() -> Result<Vec<Browser>, String> {
         .collect());
     #[cfg(target_os = "android")]
     Ok(browsers)
+}
+
+pub struct BrowserCatalog {
+    pub browsers: Vec<Browser>,
+    pub chooser_browser_ids: Vec<String>,
+}
+
+pub fn browser_catalog(
+    preferences: &browsefork_core::ProfilePreferences,
+) -> Result<BrowserCatalog, String> {
+    let installed = list_native_browsers()?;
+    #[cfg(not(target_os = "android"))]
+    let browsers = installed
+        .into_iter()
+        .flat_map(|browser| {
+            let mut profiles = profiles::expand_browser(browser.clone());
+            if profiles.iter().any(|profile| profile.profile.is_some()) {
+                profiles.insert(0, browser);
+            }
+            profiles
+        })
+        .collect::<Vec<_>>();
+    #[cfg(target_os = "android")]
+    let browsers = installed;
+    let chooser_browser_ids = choices::chooser_ids(&browsers, preferences);
+    Ok(BrowserCatalog {
+        browsers,
+        chooser_browser_ids,
+    })
 }
 
 /// Old rules that selected Chrome itself keep their last-used-profile behaviour.

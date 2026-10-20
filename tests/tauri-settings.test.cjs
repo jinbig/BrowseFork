@@ -23,6 +23,7 @@ test("real Tauri event loop survives concurrent Settings deletion and native cal
     assert.match(probe.stdout, /PASS real Tauri Settings IPC/);
     const saved = JSON.parse(fs.readFileSync(path.join(directory, "settings.json"), "utf8"));
     assert.deepEqual(saved.rules, [], "Last deletion must also persist on disk");
+    assert.deepEqual(saved.profile_preferences, { mode: "all", selected_profile_ids: ["fixture-profile"] });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

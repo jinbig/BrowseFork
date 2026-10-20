@@ -22,6 +22,10 @@ window.addEventListener("DOMContentLoaded", async () => {
         pattern: `gui-probe-${cycle}-${offset}.invalid`, browser_id: "/Applications/Safari.app", enabled: true,
       }));
       await invoke("replace_rules", { rules });
+      const preferences = { mode: cycle % 2 ? "all" : "single", selected_profile_ids: ["fixture-profile"] };
+      const updated = await invoke("set_profile_preferences", { preferences });
+      if (updated.rules.length !== rules.length || updated.rules.some((rule, index) => Object.keys(rules[index]).some(key => (rule[key] ?? null) !== (rules[index][key] ?? null)))) throw new Error("Profile preference overwrote rules");
+      if (updated.presentation_revision !== first.presentation_revision) throw new Error("Preference change reset presentation");
       await until(() => document.querySelectorAll('[aria-label="Delete rule"]').length === 2);
       // A burst of real layout commands increases the overlap with native paint
       // callbacks. The old mutex scope deadlocks this actual event-loop path.
@@ -36,7 +40,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (after.rules.length !== 1 || after.rules[0].id !== rules[1].id) throw new Error("Wrong rule deleted");
       document.querySelector('[aria-label="Delete rule"]').click();
       await until(() => document.querySelectorAll('[aria-label="Delete rule"]').length === 0);
-      if ((await invoke("get_snapshot")).rules.length !== 0) throw new Error("Deletion did not reach Rust");
+      const final = await invoke("get_snapshot");
+      if (final.rules.length !== 0) throw new Error("Deletion did not reach Rust");
+      if (JSON.stringify(final.profile_preferences) !== JSON.stringify(preferences)) throw new Error("Rule edit overwrote profile preferences");
     }
     await emit("browsefork-gui-probe-finished", "passed");
   } catch (error) {

@@ -141,6 +141,14 @@ precedence; update this document when an agreed requirement changes.
 - Desktop Chrome profiles are separate choices using their actual names,
   photos or initials. Do not assume work/personal labels or require a Google
   sign-in. Arbitrary names such as A and S are valid.
+- Settings offers all profiles (default), one entry per Chrome/Chromium browser,
+  or selected profiles. Filtering affects the chooser only; existing rules keep
+  their targets. If a browser has no available selected profile, keep its normal
+  browser entry available. Account policies still apply.
+- Prefer Chrome's enterprise toolbar label or confirmed managed Work label and
+  custom local profile names over the Google account's given name. Never infer
+  work/personal status from an email address. Identical local names must remain
+  distinguishable; profile renaming must preserve rule identities.
 - Show each profile name on its tile and preserve keyboard/Save choice behaviour.
   Rules use a stable profile identity: renaming keeps it, deletion asks for
   another choice. Existing generic Chrome rules retain their behaviour.

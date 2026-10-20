@@ -37,6 +37,40 @@ pub struct Settings {
     pub rules: Vec<Rule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preferences_window_size: Option<WindowSize>,
+    #[serde(default)]
+    pub profile_preferences: ProfilePreferences,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileDisplayMode {
+    Single,
+    Selected,
+    #[default]
+    #[serde(other)]
+    All,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct ProfilePreferences {
+    pub mode: ProfileDisplayMode,
+    pub selected_profile_ids: Vec<String>,
+}
+
+impl ProfilePreferences {
+    pub fn normalize(&mut self) {
+        self.selected_profile_ids.retain(|id| !id.trim().is_empty());
+        self.selected_profile_ids.sort();
+        self.selected_profile_ids.dedup();
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.mode == ProfileDisplayMode::Selected && self.selected_profile_ids.is_empty() {
+            return Err("Select at least one profile, or choose a single browser entry.".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -51,6 +85,7 @@ impl Default for Settings {
             version: SETTINGS_VERSION,
             rules: Vec::new(),
             preferences_window_size: None,
+            profile_preferences: ProfilePreferences::default(),
         }
     }
 }
@@ -258,6 +293,8 @@ pub fn load_settings(path: &Path) -> Result<Settings, String> {
     let mut checked = Settings::default();
     checked.replace_rules(settings.rules)?;
     checked.preferences_window_size = settings.preferences_window_size;
+    checked.profile_preferences = settings.profile_preferences;
+    checked.profile_preferences.normalize();
     Ok(checked)
 }
 
@@ -495,6 +532,22 @@ mod tests {
     }
 
     #[test]
+    fn profile_preferences_validate_normalize_and_ignore_unknown_modes() {
+        let mut prefs = ProfilePreferences {
+            mode: ProfileDisplayMode::Selected,
+            selected_profile_ids: vec![" ".into()],
+        };
+        prefs.normalize();
+        assert!(prefs.validate().is_err());
+        prefs.selected_profile_ids = vec!["S".into(), "A".into(), "S".into()];
+        prefs.normalize();
+        assert_eq!(prefs.selected_profile_ids, ["A", "S"]);
+        assert!(prefs.validate().is_ok());
+        let unknown: ProfilePreferences = serde_json::from_str(r#"{"mode":"future"}"#).unwrap();
+        assert_eq!(unknown, ProfilePreferences::default());
+    }
+
+    #[test]
     fn preferences_round_trip_and_reject_corruption() {
         let folder = std::env::temp_dir().join(format!(
             "browsefork-core-test-{}-{}",
@@ -517,10 +570,15 @@ mod tests {
             width: 780,
             height: 640,
         });
+        settings.profile_preferences = ProfilePreferences {
+            mode: ProfileDisplayMode::Selected,
+            selected_profile_ids: vec!["profile-S".into()],
+        };
         save_settings(&path, &settings).unwrap();
         let loaded = load_settings(&path).unwrap();
         assert_eq!(loaded.version, SETTINGS_VERSION);
         assert_eq!(loaded.rules, settings.rules);
+        assert_eq!(loaded.profile_preferences, settings.profile_preferences);
         assert_eq!(
             loaded.preferences_window_size,
             settings.preferences_window_size
@@ -546,6 +604,10 @@ mod tests {
         std::fs::write(&path, r#"{"version":1,"rules":[]}"#).unwrap();
         assert!(load_settings(&path).unwrap().rules.is_empty());
         assert_eq!(load_settings(&path).unwrap().preferences_window_size, None);
+        assert_eq!(
+            load_settings(&path).unwrap().profile_preferences,
+            ProfilePreferences::default()
+        );
 
         std::fs::write(&path, r#"{"version":999,"rules":[]}"#).unwrap();
         assert!(load_settings(&path)

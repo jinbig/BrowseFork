@@ -47,6 +47,9 @@ struct ProfileCache {
 #[serde(default)]
 struct ProfileEntry {
     name: String,
+    enterprise_label: String,
+    is_managed: Option<i32>,
+    user_accepted_account_management: bool,
     gaia_given_name: String,
     gaia_name: String,
     is_using_default_name: bool,
@@ -101,6 +104,15 @@ fn avatar(root: &Path, folder: &str, entry: &ProfileEntry) -> Option<String> {
 }
 
 fn display_name<'a>(entry: &'a ProfileEntry, folder: &'a str) -> &'a str {
+    // Chrome's toolbar gives the enterprise label priority over the Google
+    // account name. Only infer Work for an explicitly accepted managed account;
+    // never classify a profile from its email address or display name.
+    if !entry.enterprise_label.trim().is_empty() {
+        return entry.enterprise_label.trim();
+    }
+    if entry.is_managed == Some(1) && entry.user_accepted_account_management {
+        return "Work";
+    }
     let gaia = if entry.gaia_given_name.trim().is_empty() {
         &entry.gaia_name
     } else {
@@ -207,6 +219,9 @@ fn expand_at(browser: Browser, root: &Path) -> Vec<Browser> {
 fn chrome_channel(browser: &Browser) -> Option<&'static str> {
     let name = browser.name.to_ascii_lowercase();
     let id = browser.id.to_ascii_lowercase();
+    if name == "chromium" || id.ends_with("/chromium.app") || id.ends_with("\\chromium.exe") {
+        return Some("Chromium");
+    }
     if !(name.contains("chrome")
         || id.ends_with("/google chrome.app")
         || id.ends_with("\\chrome.exe"))
@@ -229,17 +244,24 @@ fn data_root(browser: &Browser) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     return Some(
         PathBuf::from(std::env::var_os("HOME")?)
-            .join("Library/Application Support/Google")
-            .join(channel),
+            .join("Library/Application Support")
+            .join(if channel == "Chromium" {
+                PathBuf::from(channel)
+            } else {
+                PathBuf::from("Google").join(channel)
+            }),
     );
     #[cfg(target_os = "windows")]
     return Some(
         PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
-            .join("Google")
-            .join(if channel == "Chrome Canary" {
-                "Chrome SxS"
+            .join(if channel == "Chromium" {
+                PathBuf::from(channel)
             } else {
-                channel
+                PathBuf::from("Google").join(if channel == "Chrome Canary" {
+                    "Chrome SxS"
+                } else {
+                    channel
+                })
             })
             .join("User Data"),
     );
@@ -250,6 +272,7 @@ fn data_root(browser: &Browser) -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
         Some(base.join(match channel {
+            "Chromium" => "chromium",
             "Chrome Beta" => "google-chrome-beta",
             "Chrome Dev" => "google-chrome-unstable",
             "Chrome Canary" => "google-chrome-canary",
@@ -374,6 +397,53 @@ mod tests {
         assert_eq!(browsers[1].name, "Chrome · A (Profile 1)");
         assert_eq!(browsers[2].profile.as_ref().unwrap().initials, "С");
         assert_eq!(browsers[2].name, "Chrome · Света");
+    }
+
+    #[test]
+    fn toolbar_enterprise_labels_and_custom_profile_names_win_over_account_name() {
+        let entry = |value| serde_json::from_value::<ProfileEntry>(value).unwrap();
+        for (value, expected) in [
+            (
+                serde_json::json!({"name":"Personal","gaia_given_name":"Mikhail"}),
+                "Personal",
+            ),
+            (
+                serde_json::json!({"name":"Mikhail","enterprise_label":"Engineering","is_managed":1,"user_accepted_account_management":true}),
+                "Engineering",
+            ),
+            (
+                serde_json::json!({"name":"Mikhail","is_managed":1,"user_accepted_account_management":true}),
+                "Work",
+            ),
+            (
+                serde_json::json!({"name":"Mikhail","is_managed":1,"user_accepted_account_management":false}),
+                "Mikhail",
+            ),
+            (serde_json::json!({"name":"A","is_managed":0}), "A"),
+        ] {
+            assert_eq!(display_name(&entry(value), "Default"), expected);
+        }
+        let f = Fixture::new();
+        f.profile("Default");
+        f.state(serde_json::json!({"Default":{"name":"Mikhail"}}));
+        let before = f.browsers()[0].id.clone();
+        f.state(serde_json::json!({"Default":{"name":"Personal","gaia_given_name":"Mikhail"}}));
+        assert_eq!(f.browsers()[0].name, "Chrome · Personal");
+        assert_eq!(f.browsers()[0].id, before);
+    }
+
+    #[test]
+    fn chromium_is_distinct_from_chrome_channels() {
+        let browser = |name: &str| Browser {
+            name: name.into(),
+            ..Default::default()
+        };
+        assert_eq!(chrome_channel(&browser("Chromium")), Some("Chromium"));
+        assert_eq!(
+            chrome_channel(&browser("Google Chrome Beta")),
+            Some("Chrome Beta")
+        );
+        assert_eq!(chrome_channel(&browser("Brave Browser")), None);
     }
 
     #[test]

@@ -73,6 +73,7 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
 
     querySelectorAll(selector) {
       if (selector === "button") return this.children.filter((child) => child.tagName === "BUTTON");
+      if (selector === "input") return this.children.flatMap(child => child.children).filter(child => child.tagName === "INPUT");
       if (selector === "img") return this.children.flatMap((child) => child.children).filter((child) => child.tagName === "IMG");
       throw new Error(`Unexpected selector: ${selector}`);
     }

@@ -13,6 +13,8 @@ let renderedChooserRevision = null;
 let renderedBrowsers = [];
 let lastPointerPosition = null;
 let refreshToken = 0;
+let renderedProfileOptionsKey = null;
+let savingProfilePreferences = false;
 
 const isAndroid = () => snapshot?.platform === "android";
 const pageRole = new URL(window.location?.href || "http://localhost/").searchParams.get("view");
@@ -62,9 +64,69 @@ async function refresh() {
 
 function browserName(id) {
   const current = snapshot.browsers.find((browser) => browser.id === id);
-  if (current) return current.name;
+  if (current?.profile) return current.name;
   const legacy = snapshot.browsers.find(browser => browser.profile?.browser_id === id)?.profile;
-  return legacy ? `${legacy.browser_name} (last used profile)` : "Unavailable browser or profile";
+  return legacy ? `${legacy.browser_name} (last used profile)` : current?.name || "Unavailable browser or profile";
+}
+
+function chooserBrowsers() {
+  if (!snapshot.chooser_browser_ids) return snapshot.browsers;
+  const visible = new Set(snapshot.chooser_browser_ids);
+  return snapshot.browsers.filter(browser => visible.has(browser.id));
+}
+
+function profileControlsDisabled(disabled) {
+  $("profile-mode").disabled = disabled;
+  $("profile-options").querySelectorAll("input").forEach(input => { input.disabled = disabled; });
+}
+
+async function saveProfilePreferences(mode, selectedIds) {
+  if (savingProfilePreferences) return;
+  savingProfilePreferences = true;
+  const focused = document.activeElement;
+  profileControlsDisabled(true);
+  try {
+    snapshot = await invoke("set_profile_preferences", { preferences: { mode, selected_profile_ids: selectedIds } });
+    message("");
+    render();
+  } catch (error) {
+    message(String(error));
+    renderProfilePreferences();
+  } finally {
+    savingProfilePreferences = false;
+    profileControlsDisabled(false);
+    if (settingsVisible() && document.activeElement === document.body) focused?.focus({ preventScroll: true });
+  }
+}
+
+function renderProfilePreferences() {
+  $("profile-preferences").hidden = isAndroid();
+  if (isAndroid()) return;
+  const preferences = snapshot.profile_preferences || { mode: "all", selected_profile_ids: [] };
+  const profiles = snapshot.browsers.filter(browser => browser.profile);
+  $("profile-mode").value = preferences.mode;
+  $("profile-selection").hidden = preferences.mode !== "selected";
+  const signature = JSON.stringify(profiles.map(browser => [browser.id, browser.name]));
+  if (signature !== renderedProfileOptionsKey) {
+    const list = $("profile-options");
+    list.replaceChildren();
+    for (const browser of profiles) {
+      const label = node("label", "profile-option");
+      const checkbox = node("input");
+      checkbox.type = "checkbox"; checkbox.value = browser.id;
+      checkbox.addEventListener("change", () => {
+        const ids = [...list.querySelectorAll("input")].filter(input => input.checked).map(input => input.value);
+        saveProfilePreferences("selected", ids);
+      });
+      label.append(checkbox, node("span", "", browser.name));
+      list.append(label);
+    }
+    if (!profiles.length) list.append(node("p", "field-hint", "No desktop Chrome or Chromium profiles were found."));
+    renderedProfileOptionsKey = signature;
+  }
+  const selected = new Set(preferences.selected_profile_ids);
+  $("profile-options").querySelectorAll("input").forEach(input => { input.checked = selected.has(input.value); });
+  profileControlsDisabled(savingProfilePreferences);
 }
 
 function sourceAppName(id) {
@@ -84,23 +146,24 @@ function renderSourceApps() {
 
 function renderBrowsers(focusSelection = false) {
   const list = $("browser-list");
+  const browsers = chooserBrowsers();
   const hadBrowserFocus = !$("chooser-view").hidden &&
     [...list.querySelectorAll("button")].includes(document.activeElement);
-  const browsersChanged = renderedBrowsers.length !== snapshot.browsers.length ||
+  const browsersChanged = renderedBrowsers.length !== browsers.length ||
     renderedBrowsers.some((browser, index) => {
-      const next = snapshot.browsers[index];
+      const next = browsers[index];
       return browser.id !== next.id || browser.name !== next.name || browser.icon_data_url !== next.icon_data_url ||
         JSON.stringify(browser.profile) !== JSON.stringify(next.profile);
     });
   if (browsersChanged) list.replaceChildren();
   $("selected-browser").hidden = false;
-  if (snapshot.browsers.length === 0) {
+  if (browsers.length === 0) {
     $("selected-browser").textContent = "";
     list.replaceChildren(node("p", "empty-state", "No browsers were found. Install a browser and try again."));
     renderedBrowsers = [];
     return;
   }
-  if (browsersChanged) for (const [index, browser] of snapshot.browsers.entries()) {
+  if (browsersChanged) for (const [index, browser] of browsers.entries()) {
     const button = node("button", "browser-button");
     button.type = "button";
     button.title = browser.name;
@@ -127,7 +190,7 @@ function renderBrowsers(focusSelection = false) {
     // Selection follows explicit keyboard/mouse actions, not automatic focus.
     button.addEventListener("focus", () => {
       if (!selectedBrowserId || browser.id === selectedBrowserId) return;
-      const selectedIndex = snapshot.browsers.findIndex((item) => item.id === selectedBrowserId);
+      const selectedIndex = browsers.findIndex((item) => item.id === selectedBrowserId);
       list.querySelectorAll("button")[selectedIndex]?.focus({ preventScroll: true });
     });
     // Showing a window under a stationary pointer can emit mouseenter later.
@@ -144,30 +207,30 @@ function renderBrowsers(focusSelection = false) {
     });
     list.append(button);
   }
-  renderedBrowsers = snapshot.browsers;
+  renderedBrowsers = browsers;
   const preferredId = selectedBrowserId || rememberedBrowserId;
-  const selected = snapshot.browsers.find((browser) => browser.id === preferredId) || snapshot.browsers[0];
+  const selected = browsers.find((browser) => browser.id === preferredId) || browsers[0];
   selectBrowser(selected.id, false);
   if (focusSelection || hadBrowserFocus) {
     // Establish DOM focus while the native window is hidden so WebKit does not
     // restore a different browser after the chooser has already appeared.
-    const index = snapshot.browsers.findIndex((browser) => browser.id === selected.id);
+    const index = browsers.findIndex((browser) => browser.id === selected.id);
     list.querySelectorAll("button")[index].focus({ preventScroll: true });
   }
 }
 
 function focusBrowser(index) {
-  selectBrowser(snapshot.browsers[index].id);
+  selectBrowser(chooserBrowsers()[index].id);
   $("browser-list").querySelectorAll("button")[index].focus({ preventScroll: true });
 }
 
 function selectBrowser(id, remember = true) {
   selectedBrowserId = id;
   if (remember) rememberedBrowserId = id;
-  const name = browserName(id);
+  const name = chooserBrowsers().find(browser => browser.id === id)?.name || browserName(id);
   if ($("selected-browser").textContent !== name) $("selected-browser").textContent = name;
   $("browser-list").querySelectorAll("button").forEach((button, index) => {
-    button.classList.toggle("is-selected", snapshot.browsers[index].id === id);
+    button.classList.toggle("is-selected", chooserBrowsers()[index].id === id);
   });
 }
 
@@ -176,7 +239,7 @@ function renderRuleBrowserOptions() {
   const selected = select.value;
   select.replaceChildren();
   for (const browser of snapshot.browsers) {
-    const option = node("option", "", browser.name);
+    const option = node("option", "", browserName(browser.id));
     option.value = browser.id;
     select.append(option);
   }
@@ -265,7 +328,7 @@ function render() {
   if (!snapshot) return;
   document.body.classList.toggle("mobile-android", isAndroid());
   document.body.classList.toggle("desktop-windows", isWindows());
-  document.body.classList.toggle("has-browser-profiles", snapshot.browsers.some(browser => browser.profile));
+  document.body.classList.toggle("has-browser-profiles", chooserBrowsers().some(browser => browser.profile));
   const loading = snapshot.ready === false;
   const mobileDismissed = isAndroid() && snapshot.presentation_requested === null;
   const inactiveDesktopPage = usesDedicatedWindows() && snapshot.presentation_requested !== (pageRole === "settings");
@@ -356,6 +419,7 @@ function render() {
     document.body.classList.remove("keyboard-navigation");
   }
   if (showingSettings) {
+    renderProfilePreferences();
     renderRuleBrowserOptions();
     renderSourceApps();
     renderRules();
@@ -376,7 +440,7 @@ async function updateLayout() {
     settings,
     displayedUrl: settings ? null : snapshot.pending_url,
     contentHeight: settings ? null : Math.ceil($("shell").scrollHeight),
-    contentWidth: settings || isAndroid() ? null : switcherWidth(snapshot.browsers.length)
+    contentWidth: settings || isAndroid() ? null : switcherWidth(chooserBrowsers().length)
   }).catch((error) => message(String(error)));
 }
 
@@ -479,6 +543,20 @@ document.addEventListener("keydown", (event) => {
     dismissWindow();
     return;
   }
+  // WebKit on macOS may skip checkboxes/buttons unless full keyboard access is
+  // enabled in the OS. Keep Settings navigation complete on every platform.
+  if (event.key === "Tab" && snapshot && settingsVisible()) {
+    const stops = [$("settings-toggle"), ...$("settings-view").querySelectorAll("input, select, button")]
+      .filter(control => !control.disabled && control.getClientRects().length);
+    if (stops.length) {
+      event.preventDefault();
+      const current = stops.indexOf(document.activeElement);
+      const next = current < 0 ? (event.shiftKey ? stops.length - 1 : 0)
+        : (current + (event.shiftKey ? -1 : 1) + stops.length) % stops.length;
+      stops[next].focus();
+    }
+    return;
+  }
   if (!snapshot?.pending_url || $("chooser-view").hidden) return;
   if (event.key === "Enter" && document.activeElement === $("save-choice")) {
     event.preventDefault();
@@ -488,7 +566,7 @@ document.addEventListener("keydown", (event) => {
   const browserButtons = [...$("browser-list").querySelectorAll("button")];
   if ((event.metaKey || event.ctrlKey) &&
       /^[1-9]$/.test(event.key)) {
-    const browser = snapshot.browsers[Number(event.key) - 1];
+    const browser = chooserBrowsers()[Number(event.key) - 1];
     if (!browser) return;
     event.preventDefault();
     choose(browser.id);
@@ -499,7 +577,7 @@ document.addEventListener("keydown", (event) => {
     if (!browserButtons.length) return;
     event.preventDefault();
     document.body.classList.add("keyboard-navigation");
-    const current = snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId);
+    const current = chooserBrowsers().findIndex((browser) => browser.id === selectedBrowserId);
     const direction = event.key === "ArrowRight" ? 1 : -1;
     focusBrowser((current + direction + browserButtons.length) % browserButtons.length);
     return;
@@ -527,7 +605,7 @@ document.addEventListener("keydown", (event) => {
   // The first Tab makes the restored selection the keyboard starting point.
   // Subsequent presses advance normally through browsers and rule controls.
   const next = enteringNavigation && !event.shiftKey && browserButtons.includes(document.activeElement)
-    ? snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId) : index < 0 ? (event.shiftKey ? stops.length - 1 : 0) :
+    ? chooserBrowsers().findIndex((browser) => browser.id === selectedBrowserId) : index < 0 ? (event.shiftKey ? stops.length - 1 : 0) :
     (index + (event.shiftKey ? -1 : 1) + stops.length) % stops.length;
   const browserIndex = browserButtons.indexOf(stops[next]);
   if (browserIndex >= 0) focusBrowser(browserIndex);
@@ -535,6 +613,13 @@ document.addEventListener("keydown", (event) => {
 });
 
 $("cancel-edit").addEventListener("click", resetRuleForm);
+
+$("profile-mode").addEventListener("change", () => {
+  const mode = $("profile-mode").value;
+  let ids = snapshot.profile_preferences?.selected_profile_ids || [];
+  if (mode === "selected" && !ids.length) ids = snapshot.browsers.filter(browser => browser.profile).map(browser => browser.id);
+  saveProfilePreferences(mode, ids);
+});
 
 $("rule-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -582,7 +667,7 @@ window.browseforkReadyToPresent = async (revision) => {
   await Promise.all(icons.map((icon) => icon.decode().catch(() => {})));
   if (snapshot.presentation_revision !== revision) return false;
   if (!$("chooser-view").hidden && selectedBrowserId) {
-    const index = snapshot.browsers.findIndex((browser) => browser.id === selectedBrowserId);
+    const index = chooserBrowsers().findIndex((browser) => browser.id === selectedBrowserId);
     $("browser-list").querySelectorAll("button")[index]?.focus({ preventScroll: true });
   }
   $("shell").getBoundingClientRect();
@@ -613,4 +698,5 @@ listen("browsefork-open-preferences", () => {
 listen("browsefork-window-inactive", ({ payload }) => dismissWindow(payload));
 listen("browsefork-platform-changed", (event) => applyPlatformUpdate(event?.payload));
 listen("browsefork-rules-changed", refresh);
+listen("browsefork-preferences-changed", refresh);
 refresh();

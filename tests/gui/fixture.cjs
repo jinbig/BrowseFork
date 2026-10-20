@@ -10,8 +10,8 @@ const test = base.extend({
       if (url.hostname !== "browsefork.test" || !file) return route.fulfill({ status: 404, body: "" });
       return route.fulfill({ contentType: file.endsWith("js") ? "text/javascript" : file.endsWith("css") ? "text/css" : "text/html", body: fs.readFileSync(path.join(ui, file)) });
     });
-    await use(async ({ role = "chooser", platform = "macos", browserCount = 3, deferSnapshot = false, profileNames = [] } = {}) => {
-      await page.addInitScript(({ role, platform, browserCount, deferSnapshot, profileNames }) => {
+    await use(async ({ role = "chooser", dedicated = true, platform = "macos", browserCount = 3, deferSnapshot = false, profileNames = [], profilePreferences = { mode: "all", selected_profile_ids: [] } } = {}) => {
+      await page.addInitScript(({ role, platform, browserCount, deferSnapshot, profileNames, profilePreferences }) => {
         if (platform === "windows") Object.defineProperty(navigator, "platform", { get: () => "Win32" });
         const names = ["Brave Browser", "Google Chrome", "Safari"];
         const browsers = Array.from({ length: browserCount }, (_, index) => {
@@ -21,19 +21,28 @@ const test = base.extend({
         });
         if (profileNames.length) {
           const chrome = browsers[1];
-          browsers.splice(1, 1, ...profileNames.map((name, index) => ({
+          browsers.splice(2, 0, ...profileNames.map((name, index) => ({
             ...chrome, id: `chrome-profile-${index}`, name: `Google Chrome · ${name}`,
             profile: { name, initials: [...name][0], avatar_data_url: null,
               browser_id: chrome.id, browser_name: chrome.name },
           })));
         }
         let state = {
-          platform, ready: true, presentation_revision: 1,
+          platform, ready: true, presentation_revision: 1, profile_preferences: profilePreferences,
           presentation_requested: role === "settings", is_default_browser: false,
           pending_url: role === "settings" ? null : "https://example.invalid/private?token=test-secret#fragment",
           pending_source_app_id: null, pending_count: role === "settings" ? 0 : 1,
           suggested_pattern: role === "settings" ? null : "example.invalid", browsers, source_apps: [], rules: [], error: null,
         };
+        function updateChoices() {
+          state.chooser_browser_ids = state.browsers.filter(browser => !browser.profile).flatMap(browser => {
+            let profiles = state.browsers.filter(candidate => candidate.profile?.browser_id === browser.id);
+            if (state.profile_preferences.mode === "single") profiles = [];
+            if (state.profile_preferences.mode === "selected") profiles = profiles.filter(p => state.profile_preferences.selected_profile_ids.includes(p.id));
+            return profiles.length ? profiles.map(p => p.id) : [browser.id];
+          });
+        }
+        updateChoices();
         const listeners = new Map();
         const calls = [];
         const emit = (name) => { for (const fn of listeners.get(name) || []) fn({ payload: null }); };
@@ -45,6 +54,7 @@ const test = base.extend({
               presentation_requested: false, presentation_revision: state.presentation_revision + 1 };
             emit("browsefork-state-changed");
           },
+          removeProfiles() { state.browsers = state.browsers.filter(browser => !browser.profile); updateChoices(); emit("browsefork-platform-changed"); },
           refresh() { emit("browsefork-platform-changed"); },
         };
         window.__TAURI__ = {
@@ -59,6 +69,11 @@ const test = base.extend({
             if (command === "set_view") {
               state = { ...state, presentation_requested: args.settings, presentation_revision: state.presentation_revision + 1 };
               emit(args.settings ? "browsefork-open-preferences" : "browsefork-state-changed"); return;
+            }
+            if (command === "set_profile_preferences") {
+              if (args.preferences.mode === "selected" && !args.preferences.selected_profile_ids.length) throw new Error("Select at least one profile, or choose a single browser entry.");
+              state.profile_preferences = structuredClone(args.preferences); updateChoices();
+              emit("browsefork-preferences-changed"); return structuredClone(state);
             }
             if (command === "replace_rules") {
               state = { ...state, rules: args.rules }; emit("browsefork-rules-changed"); return structuredClone(state);
@@ -75,8 +90,8 @@ const test = base.extend({
             throw new Error(`Unexpected GUI command: ${command}`);
           } },
         };
-      }, { role, platform, browserCount, deferSnapshot, profileNames });
-      await page.goto(`http://browsefork.test/index.html?view=${role}`);
+      }, { role, platform, browserCount, deferSnapshot, profileNames, profilePreferences });
+      await page.goto(`http://browsefork.test/index.html${dedicated ? `?view=${role}` : ""}`);
       await expect(page.locator(role === "settings" ? "#settings-view" : "#chooser-view")).toBeVisible();
     });
   },

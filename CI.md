@@ -13,8 +13,8 @@ The old `jinbig/ClickFork` remote redirects to this repository.
 3. Open [Actions](https://github.com/jinbig/BrowseFork/actions). The **Build and
    test** workflow runs on pushes to `master`/`main`, pull requests, and **Run
    workflow**. Select another pushed branch there to test it manually.
-4. Open a successful run and download its **Artifacts**. Test packages, reports,
-   and failure screenshots are retained for seven days.
+4. Open a successful run and download its **Artifacts**. Optimized release
+   packages, reports, and failure screenshots are retained for seven days.
 5. Run **Android emulator tests** manually for the slower emulator integration
    suite. Manual workflows become available after their files reach the default
    branch (`master`).
@@ -28,9 +28,9 @@ Older runs of the same PR/branch are cancelled when a replacement is queued.
 
 | Job | Host | Output and checks |
 | --- | --- | --- |
-| macOS universal | macOS 15, Apple Silicon | Intel + Apple Silicon app ZIP; formatting, Clippy, full GUI gate, Rust tests, real offscreen AppKit/Tauri tests, signature and architecture checks |
-| Windows x64 | Windows Server 2025, MSVC | Unsigned NSIS installer; formatting, Clippy, full GUI gate, real Win32/registry/icon tests |
-| Android ARM64 | Ubuntu 24.04, Java 21, SDK 36, NDK 28.2.13676358 | Debug APK, unsigned release APK/AAB; shared Rust/JS tests and native Kotlin tests |
+| macOS universal | macOS 15, Apple Silicon | Optimized release app ZIP for Intel + Apple Silicon; formatting, Clippy, full GUI gate, Rust tests, real offscreen AppKit/Tauri tests, signature and architecture checks |
+| Windows x64 | Windows Server 2025, MSVC | Optimized release app in an unsigned NSIS installer; formatting, Clippy, full GUI gate, real Win32/registry/icon tests |
+| Android ARM64 | Ubuntu 24.04, Java 21, SDK 36, NDK 28.2.13676358 | Optimized release APK signed with a disposable test key, unsigned release APK/AAB; shared Rust/JS tests and native Kotlin tests |
 | Android emulator (manual) | Ubuntu 24.04, Android 16 x86_64 emulator | Real intents, outside-tap/Skip, Back, chooser/Settings, rules, exact URL forwarding, and process-restoration tests |
 
 Node 24 and Rust 1.97.1 are pinned. npm uses its lockfile; desktop Cargo commands
@@ -52,7 +52,17 @@ Samsung devices, Slack, and GlobalProtect still need acceptance testing. A
 browser-rendering or cross-architecture build pass is not evidence that all
 those environments passed.
 
-## What these packages are suitable for
+## Release optimization and signing
+
+All downloadable app packages use optimized **release** compilation. macOS and
+Windows use Tauri/Cargo's release profile; Android uses the Rust release profile
+and Gradle release variant. The installable Android release APK has debugging
+disabled, which the workflow verifies. No debug APK is uploaded by the main
+workflow. Debug builds remain internal to unit/GUI/emulator testing; the emulator
+suite requires WebView debugging for its CDP connection.
+
+Release optimization does not establish publisher identity or store readiness.
+The current signing arrangements are:
 
 - **macOS:** ad hoc signed, not Developer ID signed or notarized. The app ZIP
   preserves executable permissions. This test build omits the unvalidated App
@@ -60,11 +70,12 @@ those environments passed.
   Gatekeeper may require user approval; this is not a public distribution build.
 - **Windows:** unsigned x64 installer, not an MSIX/Store package. Windows may
   warn about an unknown publisher.
-- **Android debug APK:** installable, but each fresh CI runner generates its own
-  development key. It cannot update an APK signed by this Mac or another run's
-  key. Do not uninstall your phone's current app just to try CI: uninstalling
+- **Android release-test-signed APK:** optimized and installable, but each CI run
+  generates a disposable test key. It cannot update an APK signed by this Mac or
+  another run's key. Do not uninstall your phone's current app just to try CI: uninstalling
   removes its rules. Use an emulator, or configure a stable signing key first.
-- **Android release APK/AAB:** explicitly unsigned; not ready to install/submit.
+  Its test certificate does not turn it into a debug build.
+- **Android release-unsigned APK/AAB:** not ready to install/submit.
 
 The current GitHub-hosted jobs have not been executed merely by adding their
 YAML files locally. The first GitHub run verifies the hosted environments.

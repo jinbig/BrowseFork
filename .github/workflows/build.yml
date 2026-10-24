@@ -1,0 +1,148 @@
+name: Build and test
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS universal
+            os: macos-15
+            target: universal-apple-darwin
+            targets: aarch64-apple-darwin x86_64-apple-darwin
+            bundles: app
+            artifact: macos-universal-test
+          - name: Windows x64
+            os: windows-2025
+            target: x86_64-pc-windows-msvc
+            targets: x86_64-pc-windows-msvc
+            bundles: nsis
+            artifact: windows-x64-test
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+        with:
+          targets: ${{ matrix.targets }}
+          cache-name: ${{ matrix.artifact }}
+      - name: Rust formatting and lint
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install GUI test browsers
+        run: npm run test:gui:install
+      - name: Full GUI and native unit test gate
+        run: |
+          npm run test:gui
+          npm run test:gui:status
+      - name: Build test app and installer
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          BUILD_BUNDLES: ${{ matrix.bundles }}
+        run: npm run build -- --ci --no-sign --target "$BUILD_TARGET" --bundles "$BUILD_BUNDLES" -- --locked
+      - name: Package macOS app without store entitlements
+        if: runner.os == 'macOS'
+        run: |
+          bundle=target/universal-apple-darwin/release/bundle/macos/BrowseFork.app
+          # This is a local-test identity, not Developer ID signing/notarization.
+          # The direct-download test build must not inherit the unvalidated
+          # Mac App Store sandbox entitlement used by the provisional config.
+          codesign --force --deep --sign - "$bundle"
+          codesign --verify --deep --strict "$bundle"
+          architectures="$(lipo -archs "$bundle/Contents/MacOS/browsefork")"
+          [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]]
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "$bundle" dist/BrowseFork-macos-universal-test.zip
+          shasum -a 256 dist/*.zip > dist/SHA256SUMS.txt
+      - name: Collect Windows installer
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p dist
+          cp target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe dist/
+          sha256sum dist/*.exe > dist/SHA256SUMS.txt
+      - name: Upload test packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: BrowseFork-${{ matrix.artifact }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload GUI reports and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gui-${{ matrix.artifact }}
+          path: target/gui-tests/
+          if-no-files-found: warn
+          retention-days: 7
+
+  android:
+    name: Android ARM64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+        with:
+          targets: aarch64-linux-android
+          cache-name: android-arm64
+      - uses: ./.github/actions/setup-android
+      - name: Shared Rust and JavaScript tests
+        run: |
+          cargo test -p browsefork-core --locked
+          npm test
+      - name: Build installable debug APK
+        # Run Tauri first: it generates the ignored Gradle includes with paths
+        # for THIS checkout. Never regenerate/overwrite the checked-in host.
+        run: bash scripts/android.sh build --ci --target aarch64 --apk --debug
+      - name: Android native unit tests
+        run: bash scripts/android.sh gradle :tauri-plugin-browsefork-android:testDebugUnitTest
+      - name: Build unsigned release APK and App Bundle
+        run: bash scripts/android.sh build --ci --target aarch64 --apk --aab
+      - name: Collect clearly labeled Android packages
+        run: |
+          mkdir -p dist
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk dist/BrowseFork-android-arm64-debug.apk
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/*-unsigned.apk dist/BrowseFork-android-arm64-release-unsigned.apk
+          cp src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab dist/BrowseFork-android-arm64-release-unsigned.aab
+          sha256sum dist/*.apk dist/*.aab > dist/SHA256SUMS.txt
+      - name: Upload Android packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: BrowseFork-android-arm64-test
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Android test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-native-tests
+          path: crates/tauri-plugin-browsefork-android/android/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7

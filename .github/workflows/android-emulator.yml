@@ -1,0 +1,52 @@
+name: Android emulator tests
+
+# Slower than the regular build. Run explicitly from the Actions tab.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-build
+        with:
+          targets: x86_64-linux-android
+          cache-name: android-emulator-x64
+      - uses: ./.github/actions/setup-android
+      - name: Build x86_64 emulator APK and capture-only test browser
+        run: |
+          bash scripts/android.sh build --ci --target x86_64 --apk --debug
+          bash scripts/android.sh gradle :test-browser:assembleDebug
+      - name: Allow the runner user to use KVM
+        run: sudo chown "$USER" /dev/kvm
+      - name: Run Android 16 emulator integration suite
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          avd-name: BrowseFork_CI
+          force-avd-creation: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -no-snapshot -noaudio -no-boot-anim -gpu swiftshader
+          disable-animations: true
+          script: npm run test:android-smoke
+      - name: Upload emulator screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-emulator-diagnostics
+          path: target/android/gui/
+          if-no-files-found: warn
+          retention-days: 7

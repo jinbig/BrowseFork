@@ -67,6 +67,13 @@ For development, `npm run dev` runs the shared UI and Rust backend. Run `npm run
 | `src-tauri/gen/android` | Checked-in Android host project |
 | `ui` | Shared picker and preferences UI |
 
+## GitHub builds
+
+GitHub Actions builds macOS universal, Windows x64, and Android ARM64 packages,
+runs the shared/native tests, and keeps downloadable artifacts for seven days.
+An additional manual workflow runs the Android emulator integration suite.
+See [CI.md](CI.md) for setup, artifact/signing limitations, and release credentials.
+
 ## Distribution notes
 
 The macOS bundle includes an App Sandbox entitlement, but a local unsigned build does not establish Mac App Store acceptance. Store distribution still needs your own Apple bundle identifier, signing and provisioning setup, and a test of the signed sandboxed app opening installed browsers. Change the provisional `com.browsefork.desktop` identifier before publishing.

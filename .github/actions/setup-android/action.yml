@@ -1,0 +1,43 @@
+name: BrowseFork Android tools
+description: Configure an isolated Android home and install the project's SDK/NDK versions.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      with:
+        distribution: temurin
+        java-version: '21'
+        cache: gradle
+        cache-dependency-path: |
+          src-tauri/gen/android/**/*.gradle*
+          src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+          crates/tauri-plugin-browsefork-android/android/build.gradle.kts
+          tests/android-browser/build.gradle.kts
+    - name: Configure SDK and accept its licenses
+      shell: bash
+      run: |
+        sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        if [[ -z "$sdk_root" || ! -x "$sdk_root/cmdline-tools/latest/bin/sdkmanager" ]]; then
+          echo 'Expected the Android SDK on a GitHub-hosted Ubuntu runner.' >&2
+          exit 1
+        fi
+        mkdir -p "$RUNNER_TEMP/android-user" "$RUNNER_TEMP/android-avd"
+        {
+          echo "ANDROID_HOME=$sdk_root"
+          echo "ANDROID_SDK_ROOT=$sdk_root"
+          echo "NDK_HOME=$sdk_root/ndk/28.2.13676358"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/android-user"
+          echo "ANDROID_AVD_HOME=$RUNNER_TEMP/android-avd"
+          echo "GRADLE_USER_HOME=$HOME/.gradle"
+        } >> "$GITHUB_ENV"
+        # Supplying finite input avoids yes/SIGPIPE failures under bash pipefail.
+        python3 - "$sdk_root" <<'PY'
+        import pathlib, subprocess, sys
+        sdk = pathlib.Path(sys.argv[1])
+        manager = str(sdk / 'cmdline-tools/latest/bin/sdkmanager')
+        subprocess.run([manager, '--sdk_root=' + str(sdk), '--licenses'],
+                       input='y\n' * 100, text=True, check=True)
+        subprocess.run([manager, '--sdk_root=' + str(sdk), 'platform-tools',
+                        'platforms;android-36', 'build-tools;36.0.0',
+                        'ndk;28.2.13676358'], check=True)
+        PY

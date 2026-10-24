@@ -508,6 +508,19 @@ async function dismissWindow(inactive = null) {
   }
 }
 
+// Android uses a stable, full-screen transparent host. Its backdrop belongs to
+// this document, so native ACTION_OUTSIDE/window-bound checks cannot see it.
+// Start outside the popup to dismiss; dragging/scrolling out of a control must
+// not cancel the link, and the touch must not activate the app behind the host.
+document.addEventListener("pointerdown", (event) => {
+  if (!isAndroid() || snapshot?.ready === false || $("chooser-view").hidden ||
+      snapshot?.presentation_requested !== false || event.isPrimary === false || event.button !== 0 ||
+      $("shell").contains(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  skipCurrentLink();
+});
+
 $("skip-link").addEventListener("click", skipCurrentLink);
 
 $("make-default-browser").addEventListener("click", async () => {

@@ -93,7 +93,9 @@ The Android native tests additionally cover stable transparent host bounds and
 icon-cache invalidation. Real WebKit tests cover compact rounded popup sizing
 versus full-screen Settings. Emulator checks assert the source window
 stays visible, Save choice resizes the chooser, and opening Settings preserves the
-link. Screenshots are written to `target/android/gui/` for visual inspection.
+link. Native outside-tap input checks dismissal, retention of older links, and
+return to the source app. Browser tests also cover taps on all popup sides, inside
+controls, dragging out, and full-screen Settings. Screenshots are written to `target/android/gui/` for visual inspection.
 `npm run test:android-startup` adds actual first-frame size and cold/warm
 timing checks on a disposable emulator clone. It records the full transition over
 a dark sender and checks every decoded video frame for a white full-screen flash,

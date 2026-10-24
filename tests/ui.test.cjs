@@ -105,6 +105,8 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
       if (document.activeElement === this) document.activeElement = null;
     }
 
+    contains(target) { return this === target || this.children.some(child => child.contains(target)); }
+
     getBoundingClientRect() { return { width: 320, height: 200 }; }
     decode() { return Promise.resolve(); }
     setAttribute() {}
@@ -186,6 +188,12 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
       document.handlers.get("keydown")({ key, shiftKey, ...modifiers, preventDefault() { prevented = true; } });
       return prevented;
     },
+    pointerDown(target = document.body, overrides = {}) {
+      let prevented = false;
+      document.handlers.get("pointerdown")({ target, button: 0, isPrimary: true,
+        preventDefault() { prevented = true; }, stopPropagation() {}, ...overrides });
+      return prevented;
+    },
     getSnapshot() { return snapshot; },
     readyToPresent(revision) { return context.window.browseforkReadyToPresent(revision); },
     resize() { windowHandlers.get("resize")?.(); },
@@ -201,6 +209,37 @@ function chooser({ framesEnabled = true, platform = "macos", ready = true, fonts
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+test("Android outside press uses Skip exactly once without opening a browser", async () => {
+  const app = chooser({ platform: "android" }); await settle();
+  const before = app.getSnapshot();
+  assert.equal(app.pointerDown(), true);
+  app.pointerDown(); // A second pointer cannot submit another dismissal while IPC is pending.
+  await settle();
+  const calls = app.calls.filter(call => call.command === "skip_link");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].args.expectedUrl, before.pending_url);
+  assert.equal(app.calls.some(call => call.command === "dismiss_window"), false);
+  assert.equal(app.calls.some(call => call.command === "choose_browser"), false);
+  assert.equal(app.$("chooser-view").hidden, true);
+});
+
+test("outside dismissal ignores popup content, secondary pointers, loading, Settings and desktop", async () => {
+  for (const platform of ["android", "macos", "windows"]) {
+    const app = chooser({ platform }); await settle();
+    assert.equal(app.pointerDown(app.$("shell")), false);
+    const content = app.document.createElement("span"); app.$("shell").append(content);
+    assert.equal(app.pointerDown(content), false);
+    assert.equal(app.pointerDown(undefined, { button: 2 }), false);
+    assert.equal(app.pointerDown(undefined, { isPrimary: false }), false);
+    if (platform !== "android") assert.equal(app.pointerDown(), false);
+    app.$("switcher-settings").click(); await settle();
+    assert.equal(app.pointerDown(), false);
+    assert.equal(app.calls.some(call => ["dismiss_window", "skip_link"].includes(call.command)), false);
+  }
+  const loading = chooser({ platform: "android", ready: false }); await settle();
+  assert.equal(loading.pointerDown(), false);
+});
 
 test("Android pushes ready link snapshots without another IPC and ignores older pushes", async () => {
   const app = chooser({ platform: "android" });

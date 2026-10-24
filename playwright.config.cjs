@@ -16,7 +16,7 @@ module.exports = defineConfig({
     { name: "webkit", use: { browserName: "webkit" } },
     ...[1, 1.5, 2].map(scale => ({
       name: `windows-chromium-${scale * 100}pct`,
-      testMatch: ["**/windows-appearance.spec.cjs", "**/profiles.spec.cjs"],
+      testMatch: ["**/windows-appearance.spec.cjs", "**/profiles.spec.cjs", "**/android-dismiss.spec.cjs"],
       use: { browserName: "chromium", deviceScaleFactor: scale },
     })),
   ],

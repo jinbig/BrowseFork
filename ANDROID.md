@@ -17,6 +17,9 @@ phone screens; the icon switcher is the only chooser interface.
 - Save choice supports host, substring, regex, source app, or combined rules.
 - Opening the app from the launcher opens Preferences, or restores a waiting chooser.
 - Sharing text containing a web URL to BrowseFork also opens the chooser.
+- Tapping outside the chooser acts exactly like Skip: show the next older link,
+  or close the popup if none remain, without activating controls in the source app. Inside controls and full-screen
+  Preferences are unaffected.
 - Back skips the currently displayed link, or closes Preferences. Backgrounding the
   app preserves waiting links; the queue is restored after Android kills the process.
 - Other URI schemes explicitly delivered to BrowseFork ask for a browser. Android

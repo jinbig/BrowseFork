@@ -110,6 +110,11 @@ precedence; update this document when an agreed requirement changes.
   later launches. Establish its viewport, remeasure wrapped content, and finish
   the native frame while hidden; do not visibly shrink it after opening.
   Reuse unchanged browser discovery/icons and keep package scans off the UI thread.
+- Tapping outside the Android chooser performs the same action as Skip: skip
+  only the displayed link and show the next older link, or close if none remain.
+  Do not open a browser or pass
+  the tap through to the source app. Taps/scrolls starting inside the chooser do
+  not dismiss it. This does not apply to full-screen Settings.
 - Use Android Back to dismiss the chooser or Settings appropriately. Backgrounding
   Android preserves waiting links; it does not apply desktop focus-loss cancellation.
 - Provide Android's native default-browser setup from Settings.

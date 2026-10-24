@@ -198,6 +198,37 @@ test("Android emulator: native links, picker, saved rules, Back, shares, and pro
       (await client.evaluate("document.getElementById('shell').getBoundingClientRect().height")) < settingsViewport.height * 0.8, "compact chooser restored");
   });
 
+  await stage("outside touch dismisses only the newest link and does not click through to the source", async () => {
+    const outsideUrl = "https://outside-tap.invalid/newest";
+    openLink(outsideUrl);
+    await until(async () => (await client.snapshot()).pending_url === outsideUrl &&
+      !(await client.evaluate("document.getElementById('chooser-view').hidden")), "outside-tap chooser");
+    const before = await client.snapshot();
+    const size = adb("shell", "wm", "size").match(/(?:Physical|Override) size: (\d+)x(\d+)/g).at(-1).match(/(\d+)x(\d+)/);
+    const tapY = Math.floor(Number(size[2]) / 2);
+    // Native device input, not a synthetic DOM event. The transparent left margin
+    // belongs to our stable full-screen host and must consume the entire tap.
+    adb("shell", "input", "tap", "1", String(tapY));
+    await until(async () => {
+      const state = await client.snapshot();
+      return state.pending_url === first && state.pending_count === before.pending_count - 1 && state.presentation_requested === false;
+    }, "outside tap skips newest link and retains the older link");
+    assert.deepEqual((await client.snapshot()).rules, before.rules);
+    await until(async () => await client.evaluate("document.getElementById('pending-host').textContent") === "route.invalid", "Skip reveals the older link");
+    assert.equal(await client.evaluate("document.getElementById('chooser-view').hidden"), false);
+    adb("shell", "input", "tap", "1", String(tapY));
+    await until(async () => {
+      const state = await client.snapshot();
+      return state.pending_count === 0 && state.presentation_requested === null;
+    }, "outside tap on the final link closes the popup");
+    await until(() => /mCurrentFocus=.*com\.android\.settings/.test(adb("shell", "dumpsys", "window", "displays")),
+      "Skip returns to the source app instead of launching a browser");
+    capture("outside-tap-dismissed");
+    openLink(first);
+    await until(async () => !(await client.evaluate("document.getElementById('chooser-view').hidden")), "chooser opens normally after outside Skip");
+    assert.equal((await client.snapshot()).pending_url, first);
+  });
+
   await stage("touch Save choice persists a host rule and forwards the full URL", async () => {
     await client.evaluate("document.getElementById('save-choice').click(); document.querySelector('button[title=\"Test Browser\"]').click()");
     await until(() => adb("shell", "run-as", browserId, "cat", "files/last-url.txt") === first, "chosen browser receives full URL");

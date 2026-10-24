@@ -14,7 +14,8 @@ The old `jinbig/ClickFork` remote redirects to this repository.
    test** workflow runs on pushes to `master`/`main`, pull requests, and **Run
    workflow**. Select another pushed branch there to test it manually.
 4. Open a successful run and download its **Artifacts**. Optimized release
-   packages, reports, and failure screenshots are retained for seven days.
+   packages are retained for 90 days; test reports and failure screenshots for
+   seven days.
 5. Run **Android emulator tests** manually for the slower emulator integration
    suite. Manual workflows become available after their files reach the default
    branch (`master`).
@@ -23,6 +24,23 @@ No workflow publishes a GitHub Release or submits anything to an app store.
 Only repository read access is requested; artifact uploads use the runner's
 automatic Actions credentials. Fork pull requests need no signing secrets.
 Older runs of the same PR/branch are cancelled when a replacement is queued.
+
+## Download retention
+
+The package uploads request 90 days, the maximum for a public repository.
+Check **Settings → Actions → General → Check, workflow run, status, artifact and
+log retention** and ensure the repository permits 90 days; organization or
+enterprise policies can impose a lower limit. The workflow value cannot exceed
+the permitted maximum. These changes apply to newly uploaded artifacts; they do
+not extend existing downloads.
+
+For versioned downloads beyond 90 days, attach selected packages to a
+[GitHub Release](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
+Release assets are separate from expiring Actions artifacts. The current workflows
+do not publish releases; a maintainer must create the release and upload its
+assets. Keep the signing limitations below visible when sharing test packages.
+
+See [GitHub's retention settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository).
 
 ## Builds and tests
 

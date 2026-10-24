@@ -70,7 +70,8 @@ For development, `npm run dev` runs the shared UI and Rust backend. Run `npm run
 ## GitHub builds
 
 GitHub Actions builds macOS universal, Windows x64, and Android ARM64 packages,
-runs the shared/native tests, and keeps downloadable artifacts for seven days.
+runs the shared/native tests, and keeps downloadable app packages for 90 days.
+Test reports and screenshots are retained for seven days.
 An additional manual workflow runs the Android emulator integration suite.
 See [CI.md](CI.md) for setup, artifact/signing limitations, and release credentials.
 

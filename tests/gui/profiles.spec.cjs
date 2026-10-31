@@ -1,5 +1,31 @@
 const { test, expect } = require("./fixture.cjs");
 
+test("profile shortcut badges leave the rounded selection border visible", async ({ page, launch }, testInfo) => {
+  await page.setViewportSize({ width: 400, height: 460 });
+  await launch({ platform: testInfo.project.name === "webkit" ? "macos" : "windows", profileNames: ["Personal", "Work"] });
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  const selected = page.getByRole("button", { name: "Google Chrome · Work", exact: true });
+  await expect(selected).toHaveClass(/is-selected/);
+  const clearances = await page.locator(".browser-button").evaluateAll(buttons => buttons.map(button => {
+    const tile = button.getBoundingClientRect();
+    const badge = button.querySelector(".browser-shortcut").getBoundingClientRect();
+    const style = getComputedStyle(button);
+    const border = parseFloat(style.borderTopWidth);
+    const radius = parseFloat(style.borderTopRightRadius);
+    const innerRadius = radius - border;
+    // The badge's top-right corner must stay inside the curved inner edge,
+    // with a visible gap rather than merely fitting the tile's bounding box.
+    const dx = Math.max(0, badge.right - (tile.right - radius));
+    const dy = Math.max(0, tile.top + radius - badge.top);
+    return Math.min(badge.top - tile.top - border, tile.right - border - badge.right,
+      innerRadius - Math.hypot(dx, dy));
+  }));
+  for (const clearance of clearances) expect(clearance).toBeGreaterThanOrEqual(2);
+  await page.mouse.move(0, 0);
+  await testInfo.attach("profile-shortcut-border", { body: await page.screenshot({ path: testInfo.outputPath("profile-shortcut-border.png") }), contentType: "image/png" });
+});
+
 test("named Chrome profiles show initials, fit icons, and route the exact selected profile", async ({ page, launch }, testInfo) => {
   await page.setViewportSize({ width: 400, height: 460 });
   await launch({ platform: testInfo.project.name === "webkit" ? "macos" : "windows", profileNames: ["A", "S"] });
